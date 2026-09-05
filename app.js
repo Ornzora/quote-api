@@ -34,8 +34,6 @@ app.use(ratelimit({
   max: 20,
   disableHeader: false,
   whitelist: (ctx) => {
-    // The bot sends its token in the request body (kept out of the URL/access
-    // logs); accept either location so its own requests stay un-throttled.
     const token = ctx.query.botToken || (ctx.request.body && ctx.request.body.botToken)
     return token === process.env.BOT_TOKEN
   },
@@ -46,26 +44,16 @@ app.use(ratelimit({
 app.use(require('./helpers').helpersApi)
 
 const route = new Router()
-
 const routes = require('./routes')
 
-// Health check endpoint for Docker/Coolify
 route.get('/health', (ctx) => {
   ctx.status = 200
   ctx.body = { status: 'ok', timestamp: Date.now() }
 })
 
 route.use('/*', routes.routeApi.routes())
-
 app.use(route.routes())
 
-const port = process.env.PORT || 3000
+const ready = loadFonts()
 
-async function start () {
-  await loadFonts()
-  app.listen(port, () => {
-    console.log('Listening on localhost, port', port)
-  })
-}
-
-start()
+module.exports = { app, ready }
