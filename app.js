@@ -33,11 +33,29 @@ app.use(ratelimit({
 const route = new Router()
 const routes = require('./routes')
 const ui = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8')
+const fontsDir = path.join(__dirname, 'assets', 'fonts')
 
 route.get('/', (ctx) => {
   ctx.status = 200
   ctx.type = 'text/html'
   ctx.body = ui
+})
+
+route.get('/fonts/:name', (ctx) => {
+  const name = path.basename(ctx.params.name)
+  const allowed = /^(nunito-latin-(400|600|700|800)-normal|pacifico-latin-400-normal)\\.(woff2?|woff)$/
+  if (!allowed.test(name)) {
+    ctx.status = 404
+    return
+  }
+  const file = path.join(fontsDir, name)
+  if (!fs.existsSync(file)) {
+    ctx.status = 404
+    return
+  }
+  ctx.type = name.endsWith('.woff2') ? 'font/woff2' : 'font/woff'
+  ctx.set('Cache-Control', 'public, max-age=31536000, immutable')
+  ctx.body = fs.createReadStream(file)
 })
 
 route.get('/default-avatar.svg', (ctx) => {
@@ -47,7 +65,7 @@ route.get('/default-avatar.svg', (ctx) => {
 })
 
 app.use(async (ctx, next) => {
-  if (ctx.path === '/' || ctx.path === '/health' || ctx.path === '/default-avatar.svg') return next()
+  if (ctx.path === '/' || ctx.path === '/health' || ctx.path === '/default-avatar.svg' || ctx.path.startsWith('/fonts/')) return next()
   return require('./helpers').helpersApi(ctx, next)
 })
 
