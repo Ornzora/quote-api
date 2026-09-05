@@ -1,119 +1,142 @@
 # quote-api
 
-[![npm version](https://img.shields.io/npm/v/quote-api)](https://www.npmjs.com/package/quote-api)
-[![wakatime](https://wakatime.com/badge/github/LyoSU/quote-api.svg)](https://wakatime.com/badge/github/LyoSU/quote-api)
+Quote image generation API for Telegram messages, with a small web Playground and support for PNG/WebP output.
 
-Generator for creating images with "quotes" from Telegram messages.
+## Requirements
 
-## Table of Contents
-- [quote-api](#quote-api)
-  - [Table of Contents](#table-of-contents)
-  - [Installation](#installation)
-  - [Running](#running)
-  - [API](#api)
-    - [POST /generate](#post-generate)
-      - [Request Parameters](#request-parameters)
-      - [Message Object](#message-object)
-      - [Request Example](#request-example)
-      - [Response](#response)
-      - [Additional Examples](#additional-examples)
-        - [Text Entities Example](#text-entities-example)
-        - [Media Examples](#media-examples)
-        - [Voice Message Example](#voice-message-example)
-      - [Error Handling](#error-handling)
-    - [File Extension in URL](#file-extension-in-url)
-  - [Deployed Instance](#deployed-instance)
-  - [Usage Examples](#usage-examples)
-    - [JavaScript](#javascript)
-    - [Python](#python)
-
----
+- Node.js 24.x
+- A Telegram Bot API token in `BOT_TOKEN` when Telegram file links are needed
 
 ## Installation
 
 ```bash
-git clone https://github.com/LyoSU/quote-api.git
+git clone https://github.com/Ornzora/quote-api.git
 cd quote-api
 npm install
 ```
 
+The install step prepares the UI and renderer fonts through `scripts/download-fonts.js`.
+
 ## Running
 
 ```bash
-# Using environment variables
 export BOT_TOKEN=your_telegram_bot_token
 npm start
-
-# Or directly
-node index.js
 ```
 
----
+The local Koa server exposes the API at `/generate`. The Vercel deployment uses `/quote/generate` through `api/index.js` and `vercel.json`.
+
+## Web Playground
+
+Open `/` for the built-in Playground. It exposes the existing quote controls plus three optional color controls:
+
+- **Bubble color** — default `#FFFFFF`
+- **Name color** — default `#000000`
+- **Text color** — default `#000000`
+
+The controls update the actual JSON request used by the Playground; they are not visual-only settings.
 
 ## API
 
-### POST /generate
+### `POST /generate`
 
-Generates one or more "quote" images.
+On the deployed Vercel instance the equivalent route is:
 
-#### Request Parameters
+```text
+POST /quote/generate
+```
 
-Content-Type: `application/json`
+Content-Type:
 
-| Field               | Type     | Required | Description                                                                                                    |
-| ------------------- | -------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| `botToken`          | string   | No       | Telegram bot token (if not provided, uses `process.env.BOT_TOKEN`).                                             |
-| `type`              | string   | No       | Final content format:                                                                                           |
-|                     |          |          | - `quote` (framed quote)                                                                                        |
-|                     |          |          | - `image` (background + eternal image)                                                                          |
-|                     |          |          | - `stories` (720×1280 for stories)                                                                              |
-|                     |          |          | - otherwise — `null` (raw data).                                                                                |
-| `format`            | string   | No       | File format: `png` or `webp` (for `type === 'quote'`).                                                         |
-| `ext`               | string   | No       | Extension: `png`/`webp`. If specified, response `image` will be a `Buffer`, otherwise — `base64` string.        |
-| `backgroundColor`   | string   | No       | Background color (HEX, CSS-name or `random`).                                                                   |
-|                     |          |          | - If string contains slash, e.g., `"#111/#222"`, it creates a gradient.                                         |
-|                     |          |          | - If starts with `//`, creates a semi-transparent variant.                                                      |
-| `width`             | number   | No       | Layout width in px (before scaling).                                                                            |
-| `height`            | number   | No       | Layout height in px (before scaling).                                                                           |
-| `scale`             | number   | No       | Scaling factor (1–20). Default is `2`.                                                                          |
-| `emojiBrand`        | string   | No       | Emoji brand: `apple` (default), `google`, `twitter`, etc.                                                       |
-| `messages`          | array    | Yes      | List of messages (see [Message Object](#message-object)).                                                      |
+```text
+application/json
+```
 
-#### Message Object
+### Request parameters
 
-| Field                | Type           | Required | Description                                                                                              |
-| -------------------- | -------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| `from`               | object         | Yes      | Sender information:                                                                                     |
-|                      |                |          | - `id` (number): User ID                                                                                 |
-|                      |                |          | - `first_name`, `last_name`: User's name components                                                      |
-|                      |                |          | - `name`: Alternative to first_name/last_name                                                            |
-|                      |                |          | - `username`: User's username                                                                            |
-|                      |                |          | - `photo.url` or `photo.big_file_id`: Avatar image                                                       |
-|                      |                |          | - `emoji_status`: Custom emoji status ID (optional)                                                      |
-| `text`               | string         | No       | Message text (up to 4096 characters).                                                                    |
-| `entities`           | array          | No       | Telegram text styles: `bold`, `italic`, `underline`, `strikethrough`, `code`, links, hashtags, etc.      |
-|                      |                |          | Each entity is an object with: `type`, `offset`, `length`, and sometimes `custom_emoji_id`               |
-| `avatar`             | boolean        | No       | Whether to show avatar (true/false).                                                                     |
-| `replyMessage`       | object         | No       | If specified, shows a short quote above:                                                                 |
-|                      |                |          | - `name`: Name of the user being replied to                                                              |
-|                      |                |          | - `text`: Text of the replied message                                                                    |
-|                      |                |          | - `entities`: Text styles in the reply                                                                   |
-|                      |                |          | - `chatId`: ID of the chat where the original message was sent (defaults to sender ID if missing)         |
-|                      |                |          | - `from`: Optional user information about the reply author                                               |
-| `media`              | object\|array  | No       | If array is passed, uses the last file (or second if `mediaCrop=true`).                                 |
-|                      |                |          | If object: `{ url }` or `{ file_id, width, height, is_animated }`                                        |
-| `mediaType`          | string         | No       | `sticker` for stickers, otherwise text/image.                                                            |
-| `mediaCrop`          | boolean        | No       | Whether to crop media to maintain proportions.                                                           |
-| `voice`              | object         | No       | Voice message: `{ waveform: [...number] }`. Displayed as a waveform.                                     |
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `botToken` | string | No | Telegram Bot API token. Falls back to `BOT_TOKEN`. Avoid putting secrets in URLs; JSON body is preferred. |
+| `type` | string | No | `quote`, `image`, or `stories`. If omitted, the raw quote canvas is returned. |
+| `format` | string | No | `png` or `webp` for JSON/base64 generation. Default `png`. |
+| `ext` | string | No | `png` or `webp`. Returns binary image bytes instead of base64. |
+| `backgroundColor` | string | No | Existing background behavior: HEX, CSS color, `random`, gradient syntax such as `#111/#222`, and the existing semi-transparent `//` syntax. |
+| `bubbleColor` | string | No | Quote bubble color. HEX only: `#RGB` or `#RRGGBB`. Default `#FFFFFF`. |
+| `nameColor` | string | No | Sender name color. HEX only: `#RGB` or `#RRGGBB`. Default `#000000`. |
+| `textColor` | string | No | Message text color. HEX only: `#RGB` or `#RRGGBB`. Default `#000000`. |
+| `width` | number | No | Layout width before scaling. Must be finite and between `1` and `2048`. Default `512`. |
+| `height` | number | No | Layout height before scaling. Must be finite and between `1` and `2048`. Default `512`. |
+| `scale` | number | No | Rendering scale. Must be finite and between `1` and `4`. Default `2`. |
+| `emojiBrand` | string | No | Emoji brand, such as `apple` or `google`. Unknown brands fall back to `apple`. |
+| `messages` | array | Yes | Telegram-style messages to render. |
 
-#### Request Example
+Invalid dimensions, scale, format, or HEX customization colors are rejected with a `400` response rather than being passed to the renderer.
+
+### Message object
+
+```json
+{
+  "from": {
+    "id": 1,
+    "name": "Alice",
+    "photo": { "url": "https://example.com/avatar.jpg" }
+  },
+  "text": "Hello world",
+  "entities": [],
+  "avatar": true,
+  "replyMessage": {}
+}
+```
+
+Supported message features include sender information, text entities, avatars, replies, media, voice messages, documents, audio, forwarded labels, and Telegram custom emoji as supported by the renderer.
+
+## Color customization
+
+Colors are applied by the server before rendering and are used by the quote compositor:
+
+```json
+{
+  "bubbleColor": "#FFFFFF",
+  "nameColor": "#000000",
+  "textColor": "#000000",
+  "messages": [
+    {
+      "from": { "id": 1, "name": "Alice" },
+      "text": "Hello world"
+    }
+  ]
+}
+```
+
+Example with custom colors:
+
+```json
+{
+  "bubbleColor": "#F5E6C8",
+  "nameColor": "#7A3E00",
+  "textColor": "#241A12",
+  "messages": [
+    {
+      "from": { "id": 1, "name": "Alice" },
+      "text": "Hello world"
+    }
+  ]
+}
+```
+
+Only `#RGB` and `#RRGGBB` values are accepted for these three fields. Values such as `red`, `rgb(...)`, malformed hex, or arbitrary CSS are rejected.
+
+## Request example
 
 ```http
-POST /generate
+POST /quote/generate
 Content-Type: application/json
 
 {
   "backgroundColor": "#1b1429",
+  "bubbleColor": "#FFFFFF",
+  "nameColor": "#000000",
+  "textColor": "#000000",
   "width": 512,
   "height": 768,
   "scale": 2,
@@ -122,355 +145,137 @@ Content-Type: application/json
     {
       "from": {
         "id": 66478514,
-        "first_name": "Yuri 💜",
-        "last_name": "Ly",
-        "username": "LyoSU",
-        "photo": { "big_file_id": "AQAD..." }
+        "first_name": "Alice",
+        "last_name": "Example"
       },
       "text": "Welcome to the quote generator!",
-      "entities": [
-        {
-          "type": "bold",
-          "offset": 0,
-          "length": 7
-        },
-        {
-          "type": "italic",
-          "offset": 8,
-          "length": 3
-        }
-      ],
-      "avatar": true,
-      "replyMessage": {
-        "name": "Charlie",
-        "text": "How's the weather today?",
-        "entities": [],
-        "chatId": 123456789,
-        "from": {
-          "id": 123456789,
-          "name": "Charlie",
-          "photo": { "url": "https://example.com/avatar.jpg" }
-        }
-      }
+      "entities": [],
+      "avatar": false
     }
   ]
 }
 ```
 
-#### Response
+## JSON response
+
+Without `ext`, the image is returned as a base64 string:
 
 ```json
 {
-  "image": "<base64 string or Buffer>",
-  "type": "quote",
-  "width": 512,
-  "height": 359,
-  "ext": "png"
-}
-```
-
-#### Additional Examples
-
-##### Text Entities Example
-
-```json
-"entities": [
-  {
-    "type": "bold",
-    "offset": 0,
-    "length": 5
-  },
-  {
-    "type": "italic",
-    "offset": 6,
-    "length": 6
-  },
-  {
-    "type": "code",
-    "offset": 13,
-    "length": 10
-  },
-  {
-    "type": "text_link",
-    "offset": 24,
-    "length": 4,
-    "url": "https://example.com"
-  },
-  {
-    "type": "custom_emoji",
-    "offset": 29,
-    "length": 2,
-    "custom_emoji_id": "5368324170671202286"
+  "ok": true,
+  "result": {
+    "image": "<base64>",
+    "type": null,
+    "width": 1054,
+    "height": 122,
+    "ext": null
   }
-]
-```
-
-##### Media Examples
-
-Using URL:
-```json
-"media": {
-  "url": "https://example.com/image.jpg"
 }
 ```
 
-Using file_id:
-```json
-"media": {
-  "file_id": "AgACAgIAAxkBAAIQ7WR...",
-  "width": 800,
-  "height": 600
-}
-```
+For `format: "webp"`, the base64 payload contains actual WebP bytes.
 
-Using multiple files (will use last or second if mediaCrop=true):
-```json
-"media": [
-  {"file_id": "AgACAgIAAxkBAAIQ7WR..."},
-  {"file_id": "AgACAgIAAxkBAAIQ7WS..."}
-]
-```
+## Binary output
 
-##### Voice Message Example
-
-```json
-"voice": {
-  "waveform": [0, 4, 8, 16, 12, 8, 4, 8, 16, 12, 8, 4, 0]
-}
-```
-
-#### Error Handling
-
-Possible error responses:
-
-```json
-{"error": "query_empty"} // No parameters provided
-{"error": "messages_empty"} // No messages in the request
-{"error": "empty_messages"} // No valid messages could be processed
-```
-
-### File Extension in URL
-
-You can request images directly with the desired file format by appending `.png` or `.webp` to the endpoint URL:
+Use an extension in the API path or set `ext` in the request. For example:
 
 ```http
-POST /generate.png
+POST /quote/generate.webp
 Content-Type: application/json
+```
 
+or:
+
+```json
 {
-  "messages": [...]
+  "ext": "webp",
+  "messages": [
+    {
+      "from": { "id": 1, "name": "Alice" },
+      "text": "Hello"
+    }
+  ]
 }
 ```
 
-This is equivalent to setting `ext: "png"` in the request body. The response will contain a binary image instead of a base64 string.
+Binary responses use `image/png` or `image/webp` according to the requested extension and include `quote-type`, `quote-width`, and `quote-height` headers.
 
-Similarly, you can use:
-```http
+## Output types
+
+- `type: "quote"` — framed quote output, resized to the quote output limits.
+- `type: "image"` — quote placed on the generated wallpaper.
+- `type: "stories"` — quote placed into a `720×1280` story canvas.
+- No `type` — raw generated quote canvas.
+
+The `format` field controls PNG/WebP encoding for JSON/base64 output. The `ext` field controls binary output and its actual encoded bytes.
+
+## Direct endpoints
+
+The deployed API supports:
+
+```text
+POST /quote/generate
+POST /quote/generate.png
+POST /quote/generate.webp
+GET  /health
+```
+
+Locally, the same routes are available without the `/quote` deployment prefix:
+
+```text
+POST /generate
+POST /generate.png
 POST /generate.webp
+GET  /health
 ```
 
-This is especially useful for integrations that require direct file responses rather than processing base64 content.
+## Error responses
 
----
+Validation and processing errors use the existing response envelope:
 
-## Deployed Instance
-
-There is a deployed instance of this API available at:
-```
-https://quote.yuri.ly/quote/generate
-```
-
-You can also use format-specific endpoints:
-```
-https://quote.yuri.ly/quote/generate.png
-https://quote.yuri.ly/quote/generate.webp
-```
-
-You can use these URLs for testing purposes, but please note that stability isn't guaranteed for production use.
-
----
-
-## Usage Examples
-
-### JavaScript
-
-```js
-const axios = require('axios')
-const fs = require('fs')
-
-// Minimal example with only required fields
-const simpleExample = async () => {
-  try {
-    // Minimal required payload
-    const payload = {
-      messages: [{
-        from: {
-          id: 1,
-          name: "User"
-        },
-        text: "Hello world!"
-      }]
-    }
-
-    const response = await axios.post('https://quote.yuri.ly/quote/generate', payload)
-    if (response.data.error) {
-      console.error('Error:', response.data.error)
-      return
-    }
-
-    const buffer = Buffer.from(response.data.image, 'base64')
-    fs.writeFileSync('simple-quote.png', buffer)
-    console.log("Saved simple-quote.png")
-  } catch (error) {
-    console.error('Request failed:', error.message)
+```json
+{
+  "ok": false,
+  "error": {
+    "code": 400,
+    "message": "..."
   }
 }
-
-// Complete example with all options
-const completeExample = async () => {
-  try {
-    const payload = {
-      backgroundColor: "#FFFFFF",
-      width: 512,
-      height: 768,
-      scale: 2,
-      emojiBrand: "apple",
-      messages: [
-        {
-          from: {
-            id: 1,
-            name: "Alice",
-            photo: { url: "https://dummyimage.com/100x100" }
-          },
-          text: "Hello World",
-          avatar: true,
-          entities: [
-            {
-              type: "bold",
-              offset: 0,
-              length: 5
-            }
-          ],
-          replyMessage: {
-            name: "Bob",
-            text: "How's the weather today?",
-            entities: [],
-            chatId: 987654321
-          }
-        }
-      ]
-    }
-
-    // Option 1: Using the regular endpoint (returns base64)
-    const response = await axios.post('https://quote.yuri.ly/quote/generate', payload)
-    const buffer = Buffer.from(response.data.image, 'base64')
-    fs.writeFileSync('quote.png', buffer)
-    console.log("Saved quote.png")
-
-    // Option 2: Using the PNG endpoint directly (returns binary)
-    const binaryResponse = await axios.post(
-      'https://quote.yuri.ly/quote/generate.png',
-      payload,
-      { responseType: 'arraybuffer' }
-    )
-    fs.writeFileSync('quote-direct.png', Buffer.from(binaryResponse.data))
-    console.log("Saved quote-direct.png")
-  } catch (error) {
-    console.error('Request failed:', error.message)
-  }
-}
-
-// Run examples
-simpleExample()
-completeExample()
 ```
 
-### Python
+Common validation errors include:
 
-```py
-import requests
-import base64
-import os
-
-# Minimal example with only required fields
-def simple_example():
-    # Minimal required payload
-    payload = {
-        "messages": [{
-            "from": {
-                "id": 1,
-                "name": "User"
-            },
-            "text": "Hello world!"
-        }]
-    }
-
-    try:
-        r = requests.post('https://quote.yuri.ly/quote/generate', json=payload)
-        data = r.json()
-        if 'error' in data:
-            print(f"Error: {data['error']}")
-            return
-
-        img = base64.b64decode(data['image'])
-        with open('simple-quote.png', 'wb') as f:
-            f.write(img)
-        print("Saved simple-quote.png")
-    except Exception as e:
-        print(f"Request failed: {str(e)}")
-
-# Complete example with all options
-def complete_example():
-    payload = {
-        "backgroundColor": "#FFFFFF",
-        "width": 512,
-        "height": 768,
-        "scale": 2,
-        "emojiBrand": "apple",
-        "messages": [
-            {
-                "from": {
-                    "id": 1,
-                    "name": "Bob",
-                    "photo": { "url": "https://dummyimage.com/100x100" }
-                },
-                "text": "Hello!",
-                "avatar": True,
-                "entities": [
-                    {
-                        "type": "bold",
-                        "offset": 0,
-                        "length": 5
-                    }
-                ],
-                "replyMessage": {
-                    "name": "Alice",
-                    "text": "Hi there!",
-                    "entities": [],
-                    "chatId": 123456789
-                }
-            }
-        ]
-    }
-
-    try:
-        # Option 1: Using the regular endpoint (returns base64)
-        r = requests.post('https://quote.yuri.ly/quote/generate', json=payload)
-        data = r.json()
-        img = base64.b64decode(data['image'])
-        with open('quote.png', 'wb') as f:
-            f.write(img)
-        print("Saved quote.png")
-
-        # Option 2: Using the PNG endpoint directly (returns binary)
-        r = requests.post('https://quote.yuri.ly/quote/generate.png', json=payload)
-        with open('quote-direct.png', 'wb') as f:
-            f.write(r.content)
-        print("Saved quote-direct.png")
-    except Exception as e:
-        print(f"Request failed: {str(e)}")
-
-# Run examples
-simple_example()
-complete_example()
+```json
+{"error":"query_empty"}
+{"error":"messages_empty"}
+{"error":"width and height must be finite numbers between 1 and 2048"}
+{"error":"scale must be a finite number between 1 and 4"}
+{"error":"format must be png or webp"}
+{"error":"bubbleColor, nameColor, and textColor must be valid hex colors (#RGB or #RRGGBB)"}
 ```
+
+## Security and resource limits
+
+- Remote image URLs accept only HTTP(S).
+- URLs containing credentials are rejected.
+- DNS-resolved private, loopback, link-local, reserved, multicast, and documentation address ranges are blocked.
+- Redirect targets are validated again before following them.
+- Remote image responses are limited to 20 MB and requests time out after 10 seconds.
+- Public quote dimensions are limited to `2048×2048` before scaling, with a maximum scale of `4`.
+- Renderer cache is capped at 64 MB with a 45-minute age limit.
+- Production request logging is disabled so query-string bot tokens are not written by `koa-logger`.
+- Unexpected server errors are returned as `Internal server error`; configured bot tokens are redacted from logged error messages.
+
+## Tests
+
+Run the regression suite with:
+
+```bash
+npm test
+```
+
+`test-fixes.js` includes checks for avatar/media fixes, color customization, PNG/WebP byte formats, invalid dimensions/scale/colors/formats, and SSRF-related URL rejection.
+
+## License
+
+MIT
