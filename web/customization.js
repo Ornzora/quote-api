@@ -68,6 +68,18 @@
       if (focusCustom) input.focus()
     }
 
+    // A custom value may happen to equal a preset (for example #FFFFFF).
+    // Selecting "Custom HEX" must still reveal the input instead of routing
+    // back through setValue(), which correctly recognizes that preset.
+    const selectCustom = () => {
+      dropdown.dataset.value = 'custom'
+      triggerText.textContent = 'Custom HEX'
+      menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === 'custom'))
+      input.value = validColor(input.value) ? input.value.trim().toUpperCase() : defaults[id]
+      input.hidden = false
+      requestAnimationFrame(() => input.focus())
+    }
+
     trigger.addEventListener('click',(event) => {
       event.stopPropagation()
       document.querySelectorAll('.dropdown.open').forEach(other => {
@@ -83,8 +95,7 @@
     menu.querySelectorAll('.option').forEach(option => option.addEventListener('click',(event) => {
       event.stopPropagation()
       if (option.dataset.value === 'custom') {
-        setValue(input.value || defaults[id],true)
-        dropdown.dataset.value = 'custom'
+        selectCustom()
       } else {
         setValue(option.dataset.value)
       }
@@ -126,6 +137,14 @@
   colorRow2.append(textField)
   originalGrid?.parentElement?.insertBefore(colorRow1, originalGrid.nextSibling)
   originalGrid?.parentElement?.insertBefore(colorRow2, colorRow1.nextSibling)
+
+  // The original playground script rebuilds Advanced JSON when a base field
+  // changes. Re-apply colour fields afterwards so a valid custom HEX is not
+  // silently dropped before Generate is pressed.
+  ;['name','uid','text','avatar','showAvatar','bg','width','height','scale','replyName','replyText','hasReply'].forEach(id => {
+    $(id)?.addEventListener('input', () => setTimeout(syncColorsToJson, 0))
+    $(id)?.addEventListener('change', () => setTimeout(syncColorsToJson, 0))
+  })
 
   const syncFieldsFromJson = () => {
     try {
