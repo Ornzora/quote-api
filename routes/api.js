@@ -1,4 +1,4 @@
-const Router = require('koa-router')
+const Router = require('@koa/router')
 const api = new Router()
 
 const method = require('../methods')
