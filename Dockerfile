@@ -20,7 +20,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY package*.json ./
 
-RUN npm ci --omit=dev
+# This repository does not currently commit package-lock.json, so npm ci
+# would fail before the image can be built. Keep the existing dependency
+# manifest as the source of truth until a real lockfile is generated.
+RUN npm install --omit=dev --no-audit --no-fund
 
 # Production stage
 FROM node:22-bookworm-slim
