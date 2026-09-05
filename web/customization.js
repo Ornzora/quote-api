@@ -11,10 +11,6 @@
     darkpurple:'#ba55d3',mossgreen:'#00ff7f',darkgreen:'#008000',midnightblue:'#191970',darkorange:'#ff8c00',blackishpurple:'#9400d3',fuchsia:'#ff00ff',darkmagenta:'#8b008b',darkgrey:'#2f4f4f',peachpuff:'#ffdab9',
     darkcrimson:'#dc143c',goldenrod:'#daa520',gold:'#ffd700',silver:'#c0c0c0',lavender:'#e6e6fa',indigo:'#4b0082',turquoise:'#40e0d0',coral:'#ff7f50',beige:'#f5f5dc',navy:'#000080',lime:'#00ff00'
   }
-
-  // Reuse the same native select component as Format/Emoji brand.
-  // Keep every existing color preset available; do not remove options from the API/UI.
-  const visiblePresets = Object.keys(colorPresets)
   const colors = [['bubbleColor','Bubble color'],['nameColor','Name color'],['textColor','Text color']]
   const presetByValue = new Map(Object.entries(colorPresets).map(([name,value]) => [value.toUpperCase(),name]))
   const validColor = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(value).trim())
@@ -27,25 +23,39 @@
   const scaleField = $('scale')?.closest('.field')
   const replyCheckField = $('hasReply')?.closest('.field')
 
+  const makeColorOption = (name, value) => {
+    const option = document.createElement('button')
+    option.type = 'button'
+    option.className = 'option'
+    option.dataset.value = value
+    option.setAttribute('role', 'option')
+    option.textContent = `${name} — ${value.toUpperCase()}`
+    return option
+  }
+
   const createColorField = ([id,label]) => {
     const field = formatField.cloneNode(true)
     field.classList.add('color-field')
-    const labelEl = field.querySelector('.label') || field.querySelector('label')
-    if (labelEl) {
-      labelEl.textContent = label
-      labelEl.removeAttribute('for')
-    }
-
     const dropdown = field.querySelector('.dropdown')
-    const select = dropdown?.querySelector('select')
-    if (!dropdown || !select) return field
+    const trigger = dropdown?.querySelector('.dropdown-trigger')
+    const triggerText = trigger?.querySelector('span')
+    const menu = dropdown?.querySelector('.menu')
+    if (!dropdown || !trigger || !triggerText || !menu) return field
 
-    dropdown.removeAttribute('data-select')
+    dropdown.dataset.select = id
     dropdown.id = `${id}Dropdown`
-    select.id = id
-    select.name = id
-    select.setAttribute('aria-label', label)
-    select.innerHTML = visiblePresets.map((name) => `<option value="${colorPresets[name]}">${name} — ${colorPresets[name].toUpperCase()}</option>`).join('') + '<option value="custom">Custom HEX</option>'
+    const labelEl = field.querySelector('.label') || field.querySelector('label')
+    if (labelEl) labelEl.textContent = label
+
+    menu.innerHTML = ''
+    Object.entries(colorPresets).forEach(([name,value]) => menu.appendChild(makeColorOption(name,value)))
+    const customOption = document.createElement('button')
+    customOption.type = 'button'
+    customOption.className = 'option'
+    customOption.dataset.value = 'custom'
+    customOption.setAttribute('role', 'option')
+    customOption.textContent = 'Custom HEX'
+    menu.appendChild(customOption)
 
     const input = document.createElement('input')
     input.className = 'input color-custom'
@@ -58,6 +68,57 @@
     input.setAttribute('aria-label', `${label} custom HEX`)
     input.hidden = true
     field.appendChild(input)
+
+    const setValue = (value, focusCustom = false) => {
+      const normalized = String(value || defaults[id]).trim().toUpperCase()
+      const presetName = presetByValue.get(normalized)
+      const optionValue = presetName ? colorPresets[presetName] : 'custom'
+      triggerText.textContent = presetName ? `${presetName} — ${normalized}` : 'Custom HEX'
+      menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === optionValue))
+      if (optionValue === 'custom') {
+        input.value = validColor(normalized) ? normalized : defaults[id]
+        input.hidden = false
+        if (focusCustom) input.focus()
+      } else {
+        input.value = normalized
+        input.hidden = true
+      }
+      return optionValue === 'custom' ? input.value : colorPresets[presetName]
+    }
+
+    const sync = () => {
+      const json = $('json')
+      if (!json) return
+      try {
+        const payload = JSON.parse(json.value || '{}')
+        const value = dropdown.dataset.value === 'custom' ? input.value.trim() : dropdown.dataset.value
+        if (validColor(value)) payload[id] = value.toUpperCase()
+        json.value = JSON.stringify(payload, null, 2)
+      } catch (_) {}
+    }
+
+    trigger.addEventListener('click', (event) => {
+      event.stopPropagation()
+      document.querySelectorAll('.color-field .dropdown.open').forEach(other => {
+        if (other !== dropdown) {
+          other.classList.remove('open')
+          other.querySelector('.dropdown-trigger')?.setAttribute('aria-expanded','false')
+        }
+      })
+      const open = dropdown.classList.toggle('open')
+      trigger.setAttribute('aria-expanded', String(open))
+    })
+    menu.querySelectorAll('.option').forEach(option => option.addEventListener('click', (event) => {
+      event.stopPropagation()
+      dropdown.dataset.value = option.dataset.value
+      setValue(option.dataset.value === 'custom' ? defaults[id] : option.dataset.value, option.dataset.value === 'custom')
+      dropdown.classList.remove('open')
+      trigger.setAttribute('aria-expanded','false')
+      sync()
+    }))
+    input.addEventListener('input', sync)
+    input.addEventListener('change', sync)
+    dropdown.dataset.value = setValue(defaults[id])
     return field
   }
 
@@ -71,7 +132,7 @@
   const [bubbleField,nameField,textField] = colors.map(createColorField)
   const grids = [bgField?.parentElement, formatField?.parentElement, widthField?.parentElement, scaleField?.parentElement]
 
-  if (bgField && formatField && widthField && heightField && scaleField && replyCheckField) {
+  if (bgField && formatField && widthField && heightField && scaleField && replyCheckField && bubbleField && nameField && textField) {
     const parent = bgField.parentElement
     grids.forEach((grid,index) => { if (grid && !grids.slice(0,index).includes(grid)) grid.remove() })
     const replyRow = makeGrid(replyCheckField)
@@ -103,9 +164,9 @@
     try {
       const payload = JSON.parse(json.value || '{}')
       for (const [id] of colors) {
-        const select = $(id)
+        const dropdown = $(`${id}Dropdown`)
         const custom = $(`${id}Custom`)
-        const value = select?.value === 'custom' ? custom?.value.trim() : select?.value
+        const value = dropdown?.dataset.value === 'custom' ? custom?.value.trim() : dropdown?.dataset.value
         if (validColor(value)) payload[id] = value.toUpperCase()
       }
       json.value = JSON.stringify(payload,null,2)
@@ -113,34 +174,21 @@
   }
 
   const setColorControl = (id,value) => {
-    const select = $(id), custom = $(`${id}Custom`)
-    if (!select || !custom) return
+    const dropdown = $(`${id}Dropdown`)
+    const custom = $(`${id}Custom`)
+    const triggerText = dropdown?.querySelector('.dropdown-trigger span')
+    if (!dropdown || !custom || !triggerText) return
     const normalized = String(value || defaults[id]).trim().toUpperCase()
     const presetName = presetByValue.get(normalized)
-    if (presetName && visiblePresets.includes(presetName)) {
-      select.value = colorPresets[presetName]
-      custom.value = normalized
-      custom.hidden = true
-    } else {
-      select.value = 'custom'
-      custom.value = validColor(normalized) ? normalized : defaults[id]
-      custom.hidden = false
-    }
+    const selected = presetName ? colorPresets[presetName] : 'custom'
+    dropdown.dataset.value = selected
+    triggerText.textContent = presetName ? `${presetName} — ${normalized}` : 'Custom HEX'
+    dropdown.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === selected))
+    custom.value = validColor(normalized) ? normalized : defaults[id]
+    custom.hidden = selected !== 'custom'
   }
 
   for (const [id] of colors) {
-    const select = $(id), custom = $(`${id}Custom`)
-    select?.addEventListener('change', () => {
-      if (select.value === 'custom') {
-        custom.hidden = false
-        custom.focus()
-      } else {
-        custom.hidden = true
-        syncColorsToJson()
-      }
-    })
-    custom?.addEventListener('input', syncColorsToJson)
-    custom?.addEventListener('change', syncColorsToJson)
     setColorControl(id,defaults[id])
   }
 
