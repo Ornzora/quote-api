@@ -15,20 +15,15 @@
   const presetByValue = new Map(Object.entries(colorPresets).map(([name,value]) => [value.toUpperCase(),name]))
   const validColor = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(value).trim())
 
-  const bgField = bg.closest('.field')
-  const formatElement = document.querySelector('[data-select="format"]')
-  const formatField = formatElement?.closest('.field')
-  const widthField = $('width')?.closest('.field')
-  const heightField = $('height')?.closest('.field')
-  const scaleField = $('scale')?.closest('.field')
-  const replyCheckField = $('hasReply')?.closest('.field')
+  const formatField = document.querySelector('[data-select="format"]')?.closest('.field')
+  if (!formatField) return
 
-  const makeColorOption = (name, value) => {
+  const makeOption = (name, value) => {
     const option = document.createElement('button')
     option.type = 'button'
     option.className = 'option'
     option.dataset.value = value
-    option.setAttribute('role', 'option')
+    option.setAttribute('role','option')
     option.textContent = `${name} — ${value.toUpperCase()}`
     return option
   }
@@ -40,123 +35,68 @@
     const trigger = dropdown?.querySelector('.dropdown-trigger')
     const triggerText = trigger?.querySelector('span')
     const menu = dropdown?.querySelector('.menu')
-    if (!dropdown || !trigger || !triggerText || !menu) return field
+    const labelEl = field.querySelector('.label')
+    if (!dropdown || !trigger || !triggerText || !menu) return null
+    if (labelEl) labelEl.textContent = label
 
     dropdown.dataset.select = id
     dropdown.id = `${id}Dropdown`
-    const labelEl = field.querySelector('.label') || field.querySelector('label')
-    if (labelEl) labelEl.textContent = label
-
     menu.innerHTML = ''
-    Object.entries(colorPresets).forEach(([name,value]) => menu.appendChild(makeColorOption(name,value)))
-    const customOption = document.createElement('button')
-    customOption.type = 'button'
-    customOption.className = 'option'
-    customOption.dataset.value = 'custom'
-    customOption.setAttribute('role', 'option')
-    customOption.textContent = 'Custom HEX'
-    menu.appendChild(customOption)
+    Object.entries(colorPresets).forEach(([name,value]) => menu.appendChild(makeOption(name,value)))
+    menu.appendChild(makeOption('Custom HEX','custom'))
 
     const input = document.createElement('input')
     input.className = 'input color-custom'
     input.id = `${id}Custom`
-    input.value = defaults[id]
     input.maxLength = 7
     input.spellcheck = false
     input.inputMode = 'text'
     input.placeholder = '#FFFFFF'
-    input.setAttribute('aria-label', `${label} custom HEX`)
+    input.setAttribute('aria-label',`${label} custom HEX`)
     input.hidden = true
     field.appendChild(input)
 
     const setValue = (value, focusCustom = false) => {
       const normalized = String(value || defaults[id]).trim().toUpperCase()
       const presetName = presetByValue.get(normalized)
-      const optionValue = presetName ? colorPresets[presetName] : 'custom'
+      const selected = presetName ? colorPresets[presetName] : 'custom'
+      dropdown.dataset.value = selected
       triggerText.textContent = presetName ? `${presetName} — ${normalized}` : 'Custom HEX'
-      menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === optionValue))
-      if (optionValue === 'custom') {
-        input.value = validColor(normalized) ? normalized : defaults[id]
-        input.hidden = false
-        if (focusCustom) input.focus()
-      } else {
-        input.value = normalized
-        input.hidden = true
-      }
-      return optionValue === 'custom' ? input.value : colorPresets[presetName]
+      menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === selected))
+      input.value = validColor(normalized) ? normalized : defaults[id]
+      input.hidden = selected !== 'custom'
+      if (focusCustom) input.focus()
     }
 
-    const sync = () => {
-      const json = $('json')
-      if (!json) return
-      try {
-        const payload = JSON.parse(json.value || '{}')
-        const value = dropdown.dataset.value === 'custom' ? input.value.trim() : dropdown.dataset.value
-        if (validColor(value)) payload[id] = value.toUpperCase()
-        json.value = JSON.stringify(payload, null, 2)
-      } catch (_) {}
-    }
-
-    trigger.addEventListener('click', (event) => {
+    trigger.addEventListener('click',(event) => {
       event.stopPropagation()
-      document.querySelectorAll('.color-field .dropdown.open').forEach(other => {
+      document.querySelectorAll('.dropdown.open').forEach(other => {
         if (other !== dropdown) {
           other.classList.remove('open')
           other.querySelector('.dropdown-trigger')?.setAttribute('aria-expanded','false')
         }
       })
       const open = dropdown.classList.toggle('open')
-      trigger.setAttribute('aria-expanded', String(open))
+      trigger.setAttribute('aria-expanded',String(open))
     })
-    menu.querySelectorAll('.option').forEach(option => option.addEventListener('click', (event) => {
+
+    menu.querySelectorAll('.option').forEach(option => option.addEventListener('click',(event) => {
       event.stopPropagation()
-      dropdown.dataset.value = option.dataset.value
-      setValue(option.dataset.value === 'custom' ? defaults[id] : option.dataset.value, option.dataset.value === 'custom')
+      if (option.dataset.value === 'custom') {
+        setValue(input.value || defaults[id],true)
+        dropdown.dataset.value = 'custom'
+      } else {
+        setValue(option.dataset.value)
+      }
       dropdown.classList.remove('open')
       trigger.setAttribute('aria-expanded','false')
-      sync()
+      syncColorsToJson()
     }))
-    input.addEventListener('input', sync)
-    input.addEventListener('change', sync)
-    dropdown.dataset.value = setValue(defaults[id])
+    input.addEventListener('input',syncColorsToJson)
+    input.addEventListener('change',syncColorsToJson)
+    setValue(defaults[id])
     return field
   }
-
-  const makeGrid = (...fields) => {
-    const grid = document.createElement('div')
-    grid.className = 'grid2 customization-row'
-    fields.forEach((field) => grid.appendChild(field))
-    return grid
-  }
-
-  const [bubbleField,nameField,textField] = colors.map(createColorField)
-  const grids = [bgField?.parentElement, formatField?.parentElement, widthField?.parentElement, scaleField?.parentElement]
-
-  if (bgField && formatField && widthField && heightField && scaleField && replyCheckField && bubbleField && nameField && textField) {
-    const parent = bgField.parentElement
-    grids.forEach((grid,index) => { if (grid && !grids.slice(0,index).includes(grid)) grid.remove() })
-    const replyRow = makeGrid(replyCheckField)
-    replyRow.classList.add('full-row')
-    parent.append(
-      makeGrid(bgField,bubbleField),
-      makeGrid(nameField,textField),
-      makeGrid(formatField,scaleField),
-      makeGrid(widthField,heightField),
-      replyRow
-    )
-    const replyFields = $('replyFields')
-    if (replyFields) parent.appendChild(replyFields)
-  }
-
-  const style = document.createElement('style')
-  style.id = 'quotely-playground-fix'
-  style.textContent = `
-    html { scrollbar-width:none; }
-    html::-webkit-scrollbar,body::-webkit-scrollbar,textarea::-webkit-scrollbar,.code::-webkit-scrollbar,*::-webkit-scrollbar { width:0!important;height:0!important;display:none!important; }
-    .customization-row.full-row > .field { grid-column:1/-1; }
-    .color-custom { margin-top:8px; }
-  `
-  document.head.appendChild(style)
 
   const syncColorsToJson = () => {
     const json = $('json')
@@ -173,42 +113,55 @@
     } catch (_) {}
   }
 
-  const setColorControl = (id,value) => {
-    const dropdown = $(`${id}Dropdown`)
-    const custom = $(`${id}Custom`)
-    const triggerText = dropdown?.querySelector('.dropdown-trigger span')
-    if (!dropdown || !custom || !triggerText) return
-    const normalized = String(value || defaults[id]).trim().toUpperCase()
-    const presetName = presetByValue.get(normalized)
-    const selected = presetName ? colorPresets[presetName] : 'custom'
-    dropdown.dataset.value = selected
-    triggerText.textContent = presetName ? `${presetName} — ${normalized}` : 'Custom HEX'
-    dropdown.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === selected))
-    custom.value = validColor(normalized) ? normalized : defaults[id]
-    custom.hidden = selected !== 'custom'
-  }
+  const [bubbleField,nameField,textField] = colors.map(createColorField)
+  if (!bubbleField || !nameField || !textField) return
 
-  for (const [id] of colors) {
-    setColorControl(id,defaults[id])
-  }
-
-  document.querySelectorAll('#name,#uid,#text,#avatar,#showAvatar,#bg,#width,#height,#scale,#replyName,#replyText').forEach((el) => {
-    el.addEventListener('input',syncColorsToJson)
-    el.addEventListener('change',syncColorsToJson)
-  })
+  // Only add the new color controls. Never remove or rebuild the existing controls.
+  const originalGrid = bg.closest('.grid2')
+  const colorRow1 = document.createElement('div')
+  colorRow1.className = 'grid2 customization-row'
+  colorRow1.append(bubbleField,nameField)
+  const colorRow2 = document.createElement('div')
+  colorRow2.className = 'grid2 customization-row'
+  colorRow2.append(textField)
+  originalGrid?.parentElement?.insertBefore(colorRow1, originalGrid.nextSibling)
+  originalGrid?.parentElement?.insertBefore(colorRow2, colorRow1.nextSibling)
 
   const syncFieldsFromJson = () => {
     try {
       const payload = JSON.parse($('json').value || '{}')
-      for (const [id] of colors) setColorControl(id,payload[id] || defaults[id])
+      for (const [id] of colors) {
+        const dropdown = $(`${id}Dropdown`)
+        const custom = $(`${id}Custom`)
+        const triggerText = dropdown?.querySelector('.dropdown-trigger span')
+        if (!dropdown || !custom || !triggerText) continue
+        const normalized = String(payload[id] || defaults[id]).trim().toUpperCase()
+        const presetName = presetByValue.get(normalized)
+        const selected = presetName ? colorPresets[presetName] : 'custom'
+        dropdown.dataset.value = selected
+        triggerText.textContent = presetName ? `${presetName} — ${normalized}` : 'Custom HEX'
+        dropdown.querySelectorAll('.option').forEach(option => option.classList.toggle('active',option.dataset.value === selected))
+        custom.value = validColor(normalized) ? normalized : defaults[id]
+        custom.hidden = selected !== 'custom'
+      }
     } catch (_) {}
   }
 
   $('applyJson')?.addEventListener('click',() => setTimeout(syncFieldsFromJson,0))
-  $('reset')?.addEventListener('click',() => {
-    for (const [id] of colors) setColorControl(id,defaults[id])
-    setTimeout(syncColorsToJson,0)
-  })
+  $('reset')?.addEventListener('click',() => setTimeout(() => {
+    for (const [id] of colors) {
+      const dropdown = $(`${id}Dropdown`)
+      const custom = $(`${id}Custom`)
+      const triggerText = dropdown?.querySelector('.dropdown-trigger span')
+      if (!dropdown || !custom || !triggerText) continue
+      dropdown.dataset.value = defaults[id]
+      triggerText.textContent = 'Custom HEX'
+      dropdown.querySelectorAll('.option').forEach(option => option.classList.remove('active'))
+      custom.value = defaults[id]
+      custom.hidden = true
+    }
+    syncColorsToJson()
+  },0))
 
   const requestTable = document.querySelector('#request-doc table tbody')
   if (requestTable) for (const [id,label] of colors) {
@@ -219,6 +172,15 @@
 
   const quickstart = document.querySelector('#quickstart .code')
   if (quickstart && !quickstart.textContent.includes('bubbleColor')) quickstart.textContent = quickstart.textContent.replace(/\n  ]\n}/,'\n  ],\n  "bubbleColor": "#FFFFFF",\n  "nameColor": "#000000",\n  "textColor": "#000000"\n}')
+
+  const style = document.createElement('style')
+  style.id = 'quotely-playground-fix'
+  style.textContent = `
+    html { scrollbar-width:none; }
+    html::-webkit-scrollbar,body::-webkit-scrollbar,textarea::-webkit-scrollbar,.code::-webkit-scrollbar { width:0!important;height:0!important;display:none!important; }
+    .color-custom { margin-top:8px; }
+  `
+  document.head.appendChild(style)
 
   const resultImage = $('resultImage')
   let previousUrl = null
