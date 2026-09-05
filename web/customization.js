@@ -30,6 +30,7 @@
     if (!field) return null
     const dropdown = field.querySelector('.dropdown')
     let trigger = dropdown?.querySelector('.dropdown-trigger')
+    const trigger = dropdown?.querySelector('.dropdown-trigger')
     const menu = dropdown?.querySelector('.menu')
     const labelEl = field.querySelector('.label')
     if (!dropdown || !trigger || !menu) return null
@@ -69,6 +70,7 @@
     colorTrigger.className = `${trigger.className} color-trigger`
     trigger.replaceWith(colorTrigger)
     trigger = colorTrigger
+    trigger.classList.add('color-trigger')
     trigger.replaceChildren(input, menuToggle)
 
     const setValue = (value, focusCustom = false) => {
@@ -95,6 +97,15 @@
     }
 
     const toggleMenu = (event) => {
+      dropdown.dataset.value = 'custom'
+      triggerText.textContent = 'Custom HEX'
+      menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === 'custom'))
+      input.value = validColor(input.value) ? input.value.trim().toUpperCase() : defaults[id]
+      input.hidden = false
+      requestAnimationFrame(() => input.focus())
+    }
+
+    trigger.addEventListener('click',(event) => {
       event.stopPropagation()
       document.querySelectorAll('.dropdown.open').forEach(other => {
         if (other !== dropdown) {
@@ -146,6 +157,14 @@
 
   const [bubbleField,nameField,textField] = colors.map(createColorField)
   if (!bubbleField || !nameField || !textField) return
+
+  // The original playground script rebuilds Advanced JSON when a base field
+  // changes. Re-apply colour fields afterwards so a valid custom HEX is not
+  // silently dropped before Generate is pressed.
+  ;['name','uid','text','avatar','showAvatar','bg','width','height','scale','replyName','replyText','hasReply'].forEach(id => {
+    $(id)?.addEventListener('input', () => setTimeout(syncColorsToJson, 0))
+    $(id)?.addEventListener('change', () => setTimeout(syncColorsToJson, 0))
+  })
 
   // The original playground script rebuilds Advanced JSON when a base field
   // changes. Re-apply colour fields afterwards so a valid custom HEX is not
