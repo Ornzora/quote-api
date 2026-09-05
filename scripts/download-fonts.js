@@ -2,15 +2,26 @@ const fs = require('fs/promises')
 const path = require('path')
 
 const fontsDir = path.resolve(__dirname, '../assets/fonts')
-const base = 'https://raw.githubusercontent.com/Frenzycore/VoxLabs/main/public/fonts'
+const referenceBase = 'https://raw.githubusercontent.com/Frenzycore/VoxLabs/main/public/fonts'
+const notoBase = 'https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf'
 
 const fonts = {
-  'nunito-latin-400-normal.woff2': `${base}/nunito-latin-400-normal.woff2`,
-  'nunito-latin-600-normal.woff2': `${base}/nunito-latin-600-normal.woff2`,
-  'nunito-latin-700-normal.woff2': `${base}/nunito-latin-700-normal.woff2`,
-  'nunito-latin-800-normal.woff2': `${base}/nunito-latin-800-normal.woff2`,
-  'pacifico-latin-400-normal.woff2': `${base}/pacifico-latin-400-normal.woff2`,
-  'pacifico-latin-400-normal.woff': `${base}/pacifico-latin-400-normal.woff`
+  // UI fonts — exact assets from the supplied VoxLabs reference.
+  'nunito-latin-400-normal.woff2': `${referenceBase}/nunito-latin-400-normal.woff2`,
+  'nunito-latin-600-normal.woff2': `${referenceBase}/nunito-latin-600-normal.woff2`,
+  'nunito-latin-700-normal.woff2': `${referenceBase}/nunito-latin-700-normal.woff2`,
+  'nunito-latin-800-normal.woff2': `${referenceBase}/nunito-latin-800-normal.woff2`,
+  'pacifico-latin-400-normal.woff2': `${referenceBase}/pacifico-latin-400-normal.woff2`,
+  'pacifico-latin-400-normal.woff': `${referenceBase}/pacifico-latin-400-normal.woff`,
+
+  // Canvas renderer fonts. These must be real TTF files because canvas
+  // registerFont() cannot use the browser-only WOFF assets above.
+  'NotoSans-Regular.ttf': `${notoBase}/NotoSans/NotoSans-Regular.ttf`,
+  'NotoSans-Bold.ttf': `${notoBase}/NotoSans/NotoSans-Bold.ttf`,
+  'NotoSans-Italic.ttf': `${notoBase}/NotoSans/NotoSans-Italic.ttf`,
+  'NotoSans-BoldItalic.ttf': `${notoBase}/NotoSans/NotoSans-BoldItalic.ttf`,
+  'NotoSansMono-Regular.ttf': `${notoBase}/NotoSansMono/NotoSansMono-Regular.ttf`,
+  'NotoSansMono-Bold.ttf': `${notoBase}/NotoSansMono/NotoSansMono-Bold.ttf`
 }
 
 async function download (url, destination) {
@@ -34,14 +45,14 @@ async function main () {
       }
     } catch (_) {}
 
-    console.log(`Downloading reference font: ${name}`)
+    console.log(`Downloading font: ${name}`)
     await download(url, destination)
   }
 
-  console.log('Reference Vox Labs fonts ready')
+  console.log('All UI and renderer fonts ready')
 }
 
 main().catch(error => {
-  console.error('Failed to download reference fonts:', error.message)
+  console.error('Failed to download fonts:', error.message)
   process.exitCode = 1
 })
