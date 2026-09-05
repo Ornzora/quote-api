@@ -1,5 +1,12 @@
 const sharp = require('sharp')
 
+function safeErrorMessage (message) {
+  let text = String(message || 'Internal server error')
+  const secrets = [process.env.BOT_TOKEN].filter(Boolean)
+  for (const secret of secrets) text = text.split(secret).join('[REDACTED]')
+  return text
+}
+
 module.exports = async (ctx, next) => {
   ctx.props = Object.assign({}, ctx.query || {}, ctx.request.body || {})
 
@@ -38,15 +45,19 @@ module.exports = async (ctx, next) => {
       }
     }
   } catch (error) {
-    console.error(error)
-    ctx.status = error.statusCode || error.status || 500
+    const status = error.statusCode || error.status || 500
+    const safeMessage = safeErrorMessage(error.message)
+    console.error('API error:', safeMessage)
+    ctx.status = status
     ctx.body = {
       ok: false,
       error: {
         code: ctx.status,
-        message: error.message,
-        description: error.description
+        message: ctx.status >= 500 ? 'Internal server error' : safeMessage,
+        description: ctx.status >= 500 ? undefined : error.description
       }
     }
   }
 }
+
+module.exports.safeErrorMessage = safeErrorMessage
