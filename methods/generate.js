@@ -71,12 +71,6 @@ async function drawPatternBackground (canvas, centerColor, edgeColor, patternIma
   ctx.fillRect(0, 0, canvas.width, canvas.height)
 }
 
-// Wallpaper colors derived from the bubble color. The bubble must sit ON the
-// wallpaper, not dissolve into it:
-//  • dark bubbles → a much darker backdrop (luminance drop + vignette);
-//  • light bubbles → a PASTEL backdrop, like Telegram's light wallpapers:
-//    saturate the hue and keep lightness high — darkening a near-white just
-//    makes mud. Near-gray inputs fall back to a soft Telegram-ish blue.
 function wallpaperColors (colorOne) {
   if (lightOrDark(colorOne) === 'dark') {
     return {
@@ -87,7 +81,7 @@ function wallpaperColors (colorOne) {
   }
   let [h, s] = hexToHsl(colorOne)
   if (s < 0.08) {
-    h = 207 // washed-out gray/white → soft blue
+    h = 207
     s = 0.45
   } else {
     s = Math.min(1, Math.max(s * 1.8, 0.35))
@@ -112,16 +106,11 @@ module.exports = async (parm) => {
 
   const background = parseBackgroundColor(parm.backgroundColor)
 
-  // Normalize all messages first (sync, no I/O)
   const validMessages = parm.messages.filter(Boolean)
   for (const message of validMessages) {
     normalizeMessage(message)
   }
 
-  // Same-sender runs render with grouped corners (small radii between
-  // neighbours), like consecutive messages in Telegram. The avatar (and with
-  // it the bubble tail) belongs to the LAST message of a group only — the
-  // reserved left column keeps the other bubbles aligned.
   for (let i = 0; i < validMessages.length; i++) {
     const prevSame = i > 0 && validMessages[i - 1].chatId === validMessages[i].chatId
     const nextSame = i < validMessages.length - 1 && validMessages[i + 1].chatId === validMessages[i].chatId
@@ -129,7 +118,6 @@ module.exports = async (parm) => {
     if (nextSame) validMessages[i].avatar = false
   }
 
-  // Generate quotes with concurrency limit to avoid Telegram API rate limits
   const CONCURRENCY = 3
   const quoteImages = new Array(validMessages.length).fill(null)
   let running = 0
@@ -165,8 +153,6 @@ module.exports = async (parm) => {
     runNext()
   })
 
-  // Filter nulls (failed messages) while preserving order, keeping each
-  // image paired with its source message (for grouped-margin decisions).
   const pairs = validMessages
     .map((message, i) => ({ message, image: quoteImages[i] }))
     .filter((p) => p.image)
@@ -187,7 +173,6 @@ module.exports = async (parm) => {
       height += filteredImages[index].height
     }
 
-    // Tighter spacing inside a same-sender group, roomier between groups.
     const margins = []
     let totalMargin = 0
     for (let index = 0; index < pairs.length - 1; index++) {
@@ -244,7 +229,6 @@ module.exports = async (parm) => {
     const heightPadding = 75 * scale
     const widthPadding = 95 * scale
 
-    // Draw canvas-to-canvas directly — no need for toBuffer() -> loadImage() round-trip
     const canvasPic = createCanvas(canvasQuote.width + widthPadding, canvasQuote.height + heightPadding)
     const canvasPicCtx = canvasPic.getContext('2d')
 
@@ -265,7 +249,7 @@ module.exports = async (parm) => {
     canvasPicCtx.shadowColor = 'rgba(0, 0, 0, 0)'
 
     canvasPicCtx.fillStyle = 'rgba(0, 0, 0, 0.3)'
-    canvasPicCtx.font = `${8 * scale}px Noto Sans`
+    canvasPicCtx.font = `${8 * scale}px sans-serif`
     canvasPicCtx.textAlign = 'right'
     canvasPicCtx.fillText('@QuotLyBot', canvasPic.width - 25, canvasPic.height - 25)
 
@@ -287,7 +271,6 @@ module.exports = async (parm) => {
     const maxW = canvasPic.width - minPadding * 2
     const maxH = canvasPic.height - minPadding * 2
 
-    // Use canvas dimensions directly to decide if resize is needed — avoid toBuffer() -> loadImage()
     let drawSource = canvasQuote
     if (canvasQuote.width > maxW || canvasQuote.height > maxH) {
       const resizedBuffer = await sharp(canvasQuote.toBuffer()).resize({
@@ -309,7 +292,7 @@ module.exports = async (parm) => {
     canvasPicCtx.shadowBlur = 0
 
     canvasPicCtx.fillStyle = 'rgba(0, 0, 0, 0.4)'
-    canvasPicCtx.font = `${16 * scale}px Noto Sans`
+    canvasPicCtx.font = `${16 * scale}px sans-serif`
     canvasPicCtx.textAlign = 'center'
     canvasPicCtx.translate(70, canvasPic.height / 2)
     canvasPicCtx.rotate(-Math.PI / 2)
@@ -320,7 +303,6 @@ module.exports = async (parm) => {
     quoteImage = canvasQuote.toBuffer()
   }
 
-  // Use sharp metadata only when we went through sharp pipeline, otherwise use canvas dimensions
   let width, height
   if (type === 'quote' || type === 'image' || type === 'stories') {
     const imageMetadata = await sharp(quoteImage).metadata()
