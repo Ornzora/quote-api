@@ -158,17 +158,15 @@ Content-Type: application/json
 
 ## JSON response
 
-Without `ext`, the image is returned as a base64 string:
+Without `ext`, the image is returned as a base64 string inside the normal API result envelope. `type` and `ext` are included when they have values; omitted values are not serialized as `null`.
 
 ```json
 {
   "ok": true,
   "result": {
     "image": "<base64>",
-    "type": null,
     "width": 1054,
-    "height": 122,
-    "ext": null
+    "height": 122
   }
 }
 ```
