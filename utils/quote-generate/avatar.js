@@ -1,6 +1,7 @@
 // utils/quote-generate/avatar.js
 
 const { createCanvas, loadImage } = require('canvas')
+const sharp = require('sharp')
 const LRU = require('lru-cache')
 const runes = require('runes')
 const loadImageFromUrl = require('../image-load-url')
@@ -19,14 +20,50 @@ function avatarImageLetters (letters, color) {
   context.fillRect(0, 0, canvas.width, canvas.height)
   const letterCount = runes(letters).length
   const fontSize = letterCount > 1 ? size * 0.38 : size * 0.48
-  // Keep the fallback avatar independent of optional bundled fonts.
-  // This prevents tofu/box glyphs on minimal serverless environments.
   context.font = `600 ${fontSize}px sans-serif`
   context.fillStyle = '#FFF'
   context.textAlign = 'center'
   context.textBaseline = 'middle'
   context.fillText(letters, size / 2, size / 2)
   return canvas
+}
+
+async function loadAvatarSource (source) {
+  if (!source || typeof source !== 'string') return null
+
+  // Browser playground uploads can be sent as compact data URLs.
+  if (source.startsWith('data:image/')) {
+    try {
+      const comma = source.indexOf(',')
+      if (comma === -1) return null
+      const meta = source.slice(0, comma)
+      const body = source.slice(comma + 1)
+      const buffer = meta.includes(';base64')
+        ? Buffer.from(body, 'base64')
+        : Buffer.from(decodeURIComponent(body), 'utf8')
+      if (buffer.length > 5 * 1024 * 1024) return null
+      return await loadImage(buffer).catch(async () => {
+        try { return await loadImage(await sharp(buffer).png().toBuffer()) } catch (_) { return null }
+      })
+    } catch (_) {
+      return null
+    }
+  }
+
+  // Prefer canvas for normal PNG/JPEG URLs. If the runtime lacks SVG support,
+  // fetch the bytes and rasterize with Sharp before giving up.
+  let image = await loadImage(source).catch(() => null)
+  if (image) return image
+
+  try {
+    const buffer = await loadImageFromUrl(source)
+    if (!buffer || buffer.length > 5 * 1024 * 1024) return null
+    image = await loadImage(buffer).catch(() => null)
+    if (image) return image
+    return await loadImage(await sharp(buffer).png().toBuffer()).catch(() => null)
+  } catch (_) {
+    return null
+  }
 }
 
 async function downloadAvatarImage (user, telegram) {
@@ -49,16 +86,12 @@ async function downloadAvatarImage (user, telegram) {
   const avatarColor = AVATAR_COLORS[nameIndex]
   if (cached) return cached
 
-  if (user.photo && user.photo.url) {
-    avatarImage = await loadImage(user.photo.url).catch(() => null)
-  }
+  if (user.photo && user.photo.url) avatarImage = await loadAvatarSource(user.photo.url)
 
   if (!avatarImage) {
     try {
       let userPhotoUrl
-      if (user.photo && user.photo.big_file_id) {
-        userPhotoUrl = await telegram.getFileLink(user.photo.big_file_id).catch(() => {})
-      }
+      if (user.photo && user.photo.big_file_id) userPhotoUrl = await telegram.getFileLink(user.photo.big_file_id).catch(() => {})
       if (!userPhotoUrl) {
         const getChat = user.id != null ? await telegram.getChat(user.id).catch(() => {}) : null
         if (getChat) {
@@ -73,13 +106,7 @@ async function downloadAvatarImage (user, telegram) {
         }
         if (!userPhotoUrl && user.username) userPhotoUrl = `https://telega.one/i/userpic/320/${user.username}.jpg`
       }
-      if (userPhotoUrl) {
-        const buffer = await loadImageFromUrl(userPhotoUrl).catch((error) => {
-          console.warn('Failed to load user photo from URL:', error.message)
-          return null
-        })
-        if (buffer) avatarImage = await loadImage(buffer).catch(() => null)
-      }
+      if (userPhotoUrl) avatarImage = await loadAvatarSource(userPhotoUrl)
       if (avatarImage) avatarCache.set(cacheKey, avatarImage)
     } catch (error) {
       console.warn('Error getting user photo:', error.message)
