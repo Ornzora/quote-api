@@ -46,7 +46,8 @@ route.get('/', (ctx) => {
 route.get('/customization.js', (ctx) => {
   ctx.status = 200
   ctx.type = 'application/javascript'
-  ctx.set('Cache-Control', 'public, max-age=3600')
+  // UI customization changes frequently; don't let browsers pin an old script for an hour.
+  ctx.set('Cache-Control', 'no-cache, must-revalidate')
   ctx.body = fs.createReadStream(path.join(__dirname, 'web', 'customization.js'))
 })
 
