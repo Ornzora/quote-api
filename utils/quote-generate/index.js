@@ -30,8 +30,6 @@ async function loadFonts () {
   for (const file of files) {
     if (file.startsWith('.')) continue
     try {
-      // "NotoSans-BoldItalic.ttf" → family NotoSans, weight bold, style italic.
-      // Files without a recognized suffix register as plain family names.
       let family = file.replace(/\.[^/.]+$/, '')
       const desc = { }
       const m = family.match(/^(.*?)-(Regular|Bold|Italic|BoldItalic)$/)
@@ -50,13 +48,11 @@ async function loadFonts () {
 
 class QuoteGenerate {
   constructor (botToken) {
-    // Self-hosted Bot API server (getFile + file downloads served cloud-style).
-    // Without the env the behavior is unchanged (Telegram cloud).
     this.telegram = new Telegram(botToken, process.env.BOT_API_ROOT ? { apiRoot: process.env.BOT_API_ROOT } : undefined)
   }
 
   async generate (backgroundColorOne, backgroundColorTwo, message, width, height, scale, emojiBrand) {
-    await loadIcons() // warm white icon sprites (no-op after first call)
+    await loadIcons()
     scale = scale || 2
     if (!Number.isFinite(scale) || scale < 1) scale = 1
     if (scale > 20) scale = 20
@@ -65,20 +61,21 @@ class QuoteGenerate {
 
     const backStyle = lightOrDark(backgroundColorOne)
     const nameColorArray = backStyle === 'light' ? NAME_COLORS_LIGHT : NAME_COLORS_DARK
+    const quoteColors = message.quoteColors || {}
 
     let nameIndex = 1
     if (message.from && message.from.id) nameIndex = Math.abs(message.from.id) % 7
 
-    let nameColor = nameColorArray[nameIndex]
+    let nameColor = quoteColors.nameColor || nameColorArray[nameIndex]
 
     const colorContrast = new ColorContrast()
-    const contrast = colorContrast.getContrastRatio(colorLuminance(backgroundColorOne, 0.55), nameColor)
-    if (contrast > 90 || contrast < 30) {
-      nameColor = colorContrast.adjustContrast(colorLuminance(backgroundColorTwo, 0.55), nameColor)
+    if (!quoteColors.nameColor) {
+      const contrast = colorContrast.getContrastRatio(colorLuminance(backgroundColorOne, 0.55), nameColor)
+      if (contrast > 90 || contrast < 30) {
+        nameColor = colorContrast.adjustContrast(colorLuminance(backgroundColorTwo, 0.55), nameColor)
+      }
     }
 
-    // Name is noticeably smaller than the message text (like Telegram), so
-    // the eye lands on the content first.
     const nameSize = 18 * scale
 
     let nameCanvas
@@ -107,18 +104,14 @@ class QuoteGenerate {
           name, nameEntities, nameSize, nameColor,
           0, nameSize, width, nameSize, emojiBrand, this.telegram
         )
-        // Gradient accent on the name (base → lightened). Skipped when any
-        // emoji image is in the canvas — source-in would tint it into a
-        // flat silhouette (emoji status or regular emoji in the name).
         const nameHasEmoji = emojiDb.searchFromText({ input: name, fixCodePoints: true }).length > 0
         if (!message.from.emoji_status && !nameHasEmoji) {
           nameCanvas = gradientTint(nameCanvas, nameColor, colorLuminance(nameColor, 0.25))
         }
       } catch (error) {
         console.error('Failed to render name:', error.message, error.stack)
-        // Retry without entities (drop emoji status etc)
         try {
-          const plainName = name.replace(/\s*\uD83E\uDD21$/, '') // strip emoji placeholder
+          const plainName = name.replace(/\s*\uD83E\uDD21$/, '')
           nameCanvas = await drawMultilineText(
             plainName, [{ type: 'bold', offset: 0, length: plainName.length }],
             nameSize, nameColor, 0, nameSize, width, nameSize, emojiBrand, this.telegram
@@ -128,16 +121,13 @@ class QuoteGenerate {
     }
 
     const fontSize = 24 * scale
-    let textColor = backStyle === 'light' ? '#000' : '#fff'
+    const textColor = quoteColors.textColor || (backStyle === 'light' ? '#000' : '#fff')
 
     let textCanvas
     let textBlocks = null
     if (message.text) {
       const text = typeof message.text === 'string' ? message.text : String(message.text)
       try {
-        // Blockquote entities split the text into plain/quote runs, each
-        // rendered separately so the composer can give quotes the accent
-        // block treatment.
         const parts = splitByBlockquotes(text, message.entities)
         if (parts) {
           textBlocks = []
@@ -148,7 +138,7 @@ class QuoteGenerate {
             )
             textBlocks.push({ canvas, quote: part.quote })
           }
-          textCanvas = textBlocks[0] && textBlocks[0].canvas // width hints below
+          textCanvas = textBlocks[0] && textBlocks[0].canvas
         } else {
           textCanvas = await drawMultilineText(
             text, message.entities, fontSize, textColor,
@@ -157,7 +147,6 @@ class QuoteGenerate {
         }
       } catch (error) {
         console.error('Failed to render message text:', error.message, error.stack)
-        // Retry without entities (plain text fallback)
         try {
           textBlocks = null
           textCanvas = await drawMultilineText(
@@ -206,9 +195,6 @@ class QuoteGenerate {
 
         if (replyNameCanvas && replyTextCanvas) {
           replyData = { name: replyNameCanvas, nameColor: replyNameColor, text: replyTextCanvas }
-
-          // Thumbnail of the replied media (photo/video/sticker…), like the
-          // modern Telegram reply preview. Best-effort — silently skipped.
           const replyMedia = message.replyMessage.media
           if (replyMedia && replyMedia.fileId) {
             try {
@@ -232,7 +218,7 @@ class QuoteGenerate {
 
     if (message.media) {
       let media, type
-      let crop = !!message.mediaCrop
+      const crop = !!message.mediaCrop
 
       if (message.media.url) {
         type = 'url'
@@ -240,16 +226,12 @@ class QuoteGenerate {
       } else {
         type = 'id'
         if (message.media.length > 1) {
-          // BUG FIX: was message.media.pop() which mutated input
           media = crop ? message.media[1] : message.media[message.media.length - 1]
         } else {
           media = message.media[0]
         }
       }
 
-      // Media caps at ⅔ of the target width (like Telegram photos). `width`
-      // already carries the scale factor; the old `width / 3 * scale` only
-      // matched this at scale 2 and ballooned at higher scales.
       maxMediaSize = width * 2 / 3
       if (message.text && textCanvas && maxMediaSize < textCanvas.width) maxMediaSize = textCanvas.width
 
@@ -274,7 +256,6 @@ class QuoteGenerate {
       }
     }
 
-    // Row-style attachments (rendered inside the bubble, like Telegram).
     let attachment = null
     const attachMaxW = width * 2 / 3
     if (message.voice && Array.isArray(message.voice.waveform)) {
@@ -300,7 +281,6 @@ class QuoteGenerate {
       attachment = drawAudioRow(message.audio, nameColor, textColor, scale, attachMaxW, audioThumb)
     }
 
-    // Video/GIF media badges, painted over the media by the composer.
     let mediaBadge = null
     if (mediaCanvas) {
       if (message.mediaType === 'video') {
@@ -310,21 +290,16 @@ class QuoteGenerate {
       }
     }
 
-    // Forward label
     const isForward = !!message.forward
     const forwardLabel = isForward ? (message.forward.label || 'Forwarded message') : null
-
-    // Sender tag (user role in group)
     const senderTag = message.senderTag || null
 
-    // "via @bot" chip (inline-bot messages)
     let viaBotCanvas = null
     if (message.viaBot) {
       const viaText = `via @${String(message.viaBot).replace(/^@/, '')}`
       viaBotCanvas = drawLabel(viaText, 13 * scale, nameColor, { alpha: 0.8 })
     }
 
-    // Nothing to render — skip this message
     if (!textCanvas && !nameCanvas && !mediaCanvas && !replyData && !attachment) {
       return null
     }
@@ -332,6 +307,7 @@ class QuoteGenerate {
     return drawQuote({
       scale,
       background: { colorOne: backgroundColorOne, colorTwo: backgroundColorTwo, textColor },
+      bubbleColor: quoteColors.bubbleColor,
       avatar: avatarCanvas,
       reply: replyData,
       name: nameCanvas,
@@ -350,10 +326,6 @@ class QuoteGenerate {
   }
 }
 
-/**
- * Recolors every opaque pixel of a text canvas with a horizontal gradient
- * (source-in compositing keeps the glyph alpha, replaces the color).
- */
 function gradientTint (canvas, colorFrom, colorTo) {
   if (!canvas || canvas.width < 2) return canvas
   const ctx = canvas.getContext('2d')
@@ -368,11 +340,6 @@ function gradientTint (canvas, colorFrom, colorTo) {
   return canvas
 }
 
-/**
- * Splits text into plain/quote runs around blockquote entities. Returns
- * null when there are none (the common case — render as a single canvas).
- * Entity offsets are UTF-16 code units, which is exactly how JS slices.
- */
 function splitByBlockquotes (text, entities) {
   if (!Array.isArray(entities)) return null
   const quotes = entities
@@ -392,7 +359,7 @@ function splitByBlockquotes (text, entities) {
   const parts = []
   let pos = 0
   for (const q of quotes) {
-    if (q.offset < pos) continue // overlapping quotes — keep the first
+    if (q.offset < pos) continue
     if (q.offset > pos) {
       const plain = text.slice(pos, q.offset).replace(/\n+$/, '')
       if (plain) parts.push({ text: plain, entities: sliceEntities(pos, q.offset), quote: false })
