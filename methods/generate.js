@@ -303,6 +303,14 @@ module.exports = async (parm) => {
     quoteImage = canvasQuote.toBuffer()
   }
 
+  // Explicit response extensions control the actual returned byte format.
+  // This keeps /quote/generate.webp from returning PNG bytes with a WebP content type.
+  if (ext === 'webp') {
+    quoteImage = await sharp(quoteImage).webp({ lossless: true, force: true }).toBuffer()
+  } else if (ext === 'png') {
+    quoteImage = await sharp(quoteImage).png({ lossless: true, force: true }).toBuffer()
+  }
+
   let width, height
   if (type === 'quote' || type === 'image' || type === 'stories') {
     const imageMetadata = await sharp(quoteImage).metadata()
