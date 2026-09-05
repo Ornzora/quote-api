@@ -30,8 +30,8 @@ function getMeasureCtx () {
 const emojiImageCache = new Map()
 const emojiLoadingPromises = new Map()
 
-const BASE_FONT = 'sans-serif'
-const MONO_FONT = 'monospace'
+const BASE_FONT = 'NotoSans'
+const MONO_FONT = 'NotoSansMono'
 
 const PROBE_TALL = 'ẤÅЇĎ'
 const PROBE_DEEP = 'jqyḑộ'
