@@ -38,7 +38,7 @@ const fontsDir = path.join(__dirname, 'assets', 'fonts')
 route.get('/', (ctx) => {
   ctx.status = 200
   ctx.type = 'text/html'
-  ctx.body = ui
+  ctx.body = ui.replace("$('endpointDropdown .dropdown-trigger span').textContent=endpoint", "$('endpointDropdown').querySelector('.dropdown-trigger span').textContent=endpoint")
 })
 
 route.get('/fonts/:name', (ctx) => {
