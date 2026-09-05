@@ -6,6 +6,9 @@
   "engines": {
     "node": "24.x"
   },
+  "allowScripts": {
+    "canvas": true
+  },
   "scripts": {
     "start": "node index.js",
     "test": "node test-metrics.js && node test-style.js && node test-attachments.js && node test-fixes.js",
