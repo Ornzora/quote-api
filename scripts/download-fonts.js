@@ -4,6 +4,8 @@ const path = require('path')
 const fontsDir = path.resolve(__dirname, '../assets/fonts')
 const referenceBase = 'https://raw.githubusercontent.com/Frenzycore/VoxLabs/main/public/fonts'
 const notoBase = 'https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf'
+const DOWNLOAD_TIMEOUT_MS = 15_000
+const DOWNLOAD_RETRIES = 3
 
 const fonts = {
   // UI fonts — exact assets from the supplied VoxLabs reference.
@@ -25,11 +27,29 @@ const fonts = {
 }
 
 async function download (url, destination) {
-  const response = await fetch(url, { redirect: 'follow' })
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
-  const buffer = Buffer.from(await response.arrayBuffer())
-  if (buffer.length < 1000) throw new Error('downloaded file is unexpectedly small')
-  await fs.writeFile(destination, buffer)
+  let lastError
+
+  for (let attempt = 1; attempt <= DOWNLOAD_RETRIES; attempt++) {
+    try {
+      const response = await fetch(url, {
+        redirect: 'follow',
+        signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)
+      })
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
+      const buffer = Buffer.from(await response.arrayBuffer())
+      if (buffer.length < 1000) throw new Error('downloaded file is unexpectedly small')
+      await fs.writeFile(destination, buffer)
+      return
+    } catch (error) {
+      lastError = error
+      if (attempt < DOWNLOAD_RETRIES) {
+        const delay = attempt * 500
+        await new Promise(resolve => setTimeout(resolve, delay))
+      }
+    }
+  }
+
+  throw lastError
 }
 
 async function main () {
