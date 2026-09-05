@@ -18,6 +18,13 @@ const cache = new LRU({
 
 const MAX_DIMENSION = 2048
 const MAX_SCALE = 4
+const COLOR_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i
+
+function normalizeQuoteColor (value, fallback) {
+  if (value == null || value === '') return fallback
+  const color = String(value).trim()
+  return COLOR_RE.test(color) ? color.toUpperCase() : null
+}
 
 module.exports = async (method, parm) => {
   if (methods[method]) {
@@ -33,8 +40,25 @@ module.exports = async (method, parm) => {
         return { error: `scale must be a finite number between 1 and ${MAX_SCALE}` }
       }
 
+      const bubbleColor = normalizeQuoteColor(parm && parm.bubbleColor, '#FFFFFF')
+      const nameColor = normalizeQuoteColor(parm && parm.nameColor, '#000000')
+      const textColor = normalizeQuoteColor(parm && parm.textColor, '#000000')
+      if (!bubbleColor || !nameColor || !textColor) {
+        return { error: 'bubbleColor, nameColor, and textColor must be valid hex colors (#RGB or #RRGGBB)' }
+      }
+
       if (width * scale > MAX_DIMENSION * MAX_SCALE || height * scale > MAX_DIMENSION * MAX_SCALE) {
         return { error: `scaled dimensions must not exceed ${MAX_DIMENSION * MAX_SCALE}px` }
+      }
+
+      // Carry validated customization into the renderer without changing the
+      // public message schema consumed by the rest of the quote pipeline.
+      parm = {
+        ...parm,
+        messages: parm.messages.map((message) => ({
+          ...message,
+          quoteColors: { bubbleColor, nameColor, textColor }
+        }))
       }
     }
 
