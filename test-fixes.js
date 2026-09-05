@@ -135,14 +135,16 @@ async function main () {
   assert.ok(exactColorPixels(coloredImage, '#00FF00') > 5, 'custom nameColor was not rendered')
   assert.ok(exactColorPixels(coloredImage, '#0000FF') > 5, 'custom textColor was not rendered')
 
-  // 5. JSON/base64 and direct extension paths must contain the bytes they
-  //    claim, not PNG bytes relabeled as WebP.
+  // 5. JSON/base64 and direct method/extension paths must contain the bytes
+  //    they claim, not PNG bytes relabeled as WebP.
   const jsonPng = await generateApiMethod('generate', { messages: [msg(1, 'format png')], format: 'png' })
   const jsonWebp = await generateApiMethod('generate', { messages: [msg(1, 'format webp')], format: 'webp' })
+  const directMethodWebp = await generateMethod({ messages: [msg(1, 'direct method webp')], format: 'webp' })
   const directWebp = await generateApiMethod('generate', { messages: [msg(1, 'direct webp')], format: 'png', ext: 'webp' })
-  assert.ok(!jsonPng.error && !jsonWebp.error && !directWebp.error, 'format generation failed')
+  assert.ok(!jsonPng.error && !jsonWebp.error && !directMethodWebp.error && !directWebp.error, 'format generation failed')
   await assertImageFormat(Buffer.from(jsonPng.image, 'base64'), 'png')
   await assertImageFormat(Buffer.from(jsonWebp.image, 'base64'), 'webp')
+  await assertImageFormat(Buffer.from(directMethodWebp.image, 'base64'), 'webp')
   await assertImageFormat(directWebp.image, 'webp')
 
   // 6. Public validation must reject NaN/infinite/oversized dimensions,
