@@ -85,7 +85,9 @@ app.use(async (ctx, next) => {
   return require('./helpers').helpersApi(ctx, next)
 })
 
-route.use('/*', routes.routeApi.routes())
+// @koa/router v15 uses path-to-regexp v8, where the old /* wildcard is invalid.
+// Use a named wildcard for the nested API router instead.
+route.use('/*path', routes.routeApi.routes())
 app.use(route.routes())
 
 const ready = loadFonts()
