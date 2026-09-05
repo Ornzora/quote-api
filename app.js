@@ -38,12 +38,12 @@ const fontsDir = path.join(__dirname, 'assets', 'fonts')
 route.get('/', (ctx) => {
   ctx.status = 200
   ctx.type = 'text/html'
-  ctx.body = ui.replace("$('endpointDropdown .dropdown-trigger span').textContent=endpoint", "$('endpointDropdown').querySelector('.dropdown-trigger span').textContent=endpoint")
+  ctx.body = ui
 })
 
 route.get('/fonts/:name', (ctx) => {
   const name = path.basename(ctx.params.name)
-  const allowed = /^(nunito-latin-(400|600|700|800)-normal|pacifico-latin-400-normal)\\.(woff2?|woff)$/
+  const allowed = /^(nunito-latin-(400|600|700|800)-normal|pacifico-latin-400-normal)\.(woff2?|woff)$/
   if (!allowed.test(name)) {
     ctx.status = 404
     return
