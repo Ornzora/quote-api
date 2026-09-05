@@ -30,19 +30,8 @@
 
   const presetEntries = Object.entries(colorPresets)
   const presetByValue = new Map(presetEntries.map(([name, value]) => [value.toUpperCase(), name]))
-  const bgField = bg.closest('.field')
 
-  const validColor = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(value).trim())
-
-  const closeDropdowns = (except = null) => {
-    document.querySelectorAll('.color-dropdown.open').forEach((dropdown) => {
-      if (dropdown !== except) {
-        dropdown.classList.remove('open')
-        dropdown.querySelector('.dropdown-trigger')?.setAttribute('aria-expanded', 'false')
-      }
-    })
-  }
-
+  // The page already has a custom dropdown component. Color controls use the exact same structure/classes.
   const createColorField = ([id, label]) => {
     const field = document.createElement('div')
     field.className = 'field color-field'
@@ -52,7 +41,7 @@
     dropdown.id = `${id}Dropdown`
     dropdown.innerHTML = `
       <button class="dropdown-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
-        <span class="color-selected"></span><span class="chevron"></span>
+        <span class="color-selected"></span><span class="chevron" aria-hidden="true"></span>
       </button>
       <div class="menu" role="listbox">
         ${presetEntries.map(([name, value]) => `<button class="option" type="button" role="option" data-value="${value}" data-name="${name}">${name} — ${value.toUpperCase()}</button>`).join('')}
@@ -76,37 +65,15 @@
     return field
   }
 
-  bgField?.after(...colors.map(createColorField))
+  const validColor = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(value).trim())
 
-  const formatElement = $('format')
-  const scaleElement = $('scale')
-  const formatField = formatElement?.closest('.field')
-  const scaleField = scaleElement?.closest('.field')
-  const replyNameField = $('replyName')?.closest('.field')
-  const replyTextField = $('replyText')?.closest('.field')
-
-  // Make the output controls a complete two-column row: Format + Scale.
-  // Then unwrap the reply row so Reply name + Reply text remain a clean pair.
-  if (formatField && scaleField && formatField !== scaleField) {
-    const formatParent = formatField.parentElement
-    const scaleParent = scaleField.parentElement
-    const replyGrid = replyNameField?.parentElement === replyTextField?.parentElement ? replyNameField.parentElement : null
-
-    if (formatParent) {
-      const row = document.createElement('div')
-      row.className = 'grid2 output-controls'
-      formatParent.insertBefore(row, formatField)
-      row.append(formatField, scaleField)
-    }
-
-    if (replyGrid?.classList.contains('grid2') && replyGrid.children.length === 2) {
-      replyGrid.replaceWith(replyNameField, replyTextField)
-    }
-
-    // If Scale originally lived in a separate grid, moving it above leaves no orphaned wrapper.
-    if (scaleParent && scaleParent !== formatParent && scaleParent.classList.contains('grid2') && scaleParent.children.length === 0) {
-      scaleParent.remove()
-    }
+  const closeDropdowns = (except = null) => {
+    document.querySelectorAll('.color-dropdown.open').forEach((dropdown) => {
+      if (dropdown !== except) {
+        dropdown.classList.remove('open')
+        dropdown.querySelector('.dropdown-trigger')?.setAttribute('aria-expanded', 'false')
+      }
+    })
   }
 
   const setColorControl = (id, value) => {
@@ -114,8 +81,8 @@
     const dropdown = $(`${id}Dropdown`)
     if (!input || !dropdown) return
 
-    const selected = dropdown.querySelector('.color-selected')
     const trigger = dropdown.querySelector('.dropdown-trigger')
+    const selected = dropdown.querySelector('.color-selected')
     const options = dropdown.querySelectorAll('.option')
     const normalized = String(value || defaults[id]).trim().toUpperCase()
     const presetName = presetByValue.get(normalized)
@@ -130,33 +97,76 @@
       selected.textContent = 'Custom HEX'
     }
 
-    options.forEach((option) => option.classList.toggle('active', presetName
-      ? option.dataset.value.toUpperCase() === normalized
-      : option.dataset.value === 'custom'))
+    options.forEach((option) => {
+      const activeValue = presetName ? colorPresets[presetName] : 'custom'
+      option.classList.toggle('active', option.dataset.value === activeValue)
+    })
     trigger?.setAttribute('aria-expanded', 'false')
   }
 
-  const syncColorsToJson = () => {
-    const json = $('json')
-    if (!json) return
-    try {
-      const payload = JSON.parse(json.value || '{}')
-      for (const [id] of colors) {
-        const value = $(id).value.trim()
-        if (validColor(value)) payload[id] = value.toUpperCase()
-      }
-      json.value = JSON.stringify(payload, null, 2)
-    } catch (_) {}
+  const insertBefore = (parent, before, ...nodes) => {
+    nodes.forEach((node) => parent.insertBefore(node, before))
   }
 
-  const syncFieldsFromJson = () => {
-    try {
-      const payload = JSON.parse($('json').value || '{}')
-      for (const [id, , fallback] of colors) setColorControl(id, payload[id] || fallback)
-    } catch (_) {}
+  const makeGrid = (...fields) => {
+    const grid = document.createElement('div')
+    grid.className = 'grid2 customization-row'
+    fields.forEach((field) => grid.appendChild(field))
+    return grid
   }
 
-  for (const [id, , fallback] of colors) {
+  const bgField = bg.closest('.field')
+  const bgGrid = bgField?.parentElement
+  const formatField = $('format')?.closest('.field')
+  const formatGrid = formatField?.parentElement
+  const widthField = $('width')?.closest('.field')
+  const widthGrid = widthField?.parentElement
+  const heightField = $('height')?.closest('.field')
+  const scaleField = $('scale')?.closest('.field')
+  const scaleGrid = scaleField?.parentElement
+  const replyCheckField = $('hasReply')?.closest('.field')
+  const replyGrid = replyCheckField?.parentElement
+
+  const colorFields = colors.map(createColorField)
+  const [bubbleField, nameField, textField] = colorFields
+
+  // Rebuild only the small request-control portion. Existing fields, styles and behavior stay intact.
+  // Rows become: Background/Bubble, Name/Text, Format/Scale, Width/Height, Reply.
+  if (bgGrid && formatField && widthGrid && scaleGrid && replyCheckField) {
+    const parent = bgGrid.parentElement
+
+    bgGrid.remove()
+    if (formatGrid && formatGrid !== bgGrid) formatGrid.remove()
+    if (widthGrid && widthGrid !== bgGrid) widthGrid.remove()
+    if (scaleGrid && scaleGrid !== bgGrid) scaleGrid.remove()
+
+    const backgroundRow = makeGrid(bgField, bubbleField)
+    const textColorRow = makeGrid(nameField, textField)
+    const outputRow = makeGrid(formatField, scaleField)
+    const dimensionsRow = makeGrid(widthField, heightField)
+
+    const replyRow = makeGrid(replyCheckField)
+    replyRow.classList.add('full-row')
+
+    // Keep the hidden reply fields in their original position after the reply toggle.
+    const replyFields = $('replyFields')
+    if (replyGrid && replyGrid !== scaleGrid && replyGrid !== widthGrid) replyGrid.remove()
+
+    insertBefore(parent, replyFields || null, backgroundRow, textColorRow, outputRow, dimensionsRow, replyRow)
+
+    if (replyFields) parent.appendChild(replyFields)
+  }
+
+  // Hide every scrollbar visually while preserving normal scrolling and scrollable dropdown menus.
+  const scrollbarStyle = document.createElement('style')
+  scrollbarStyle.id = 'quotely-scrollbar-fix'
+  scrollbarStyle.textContent = `
+    html { scrollbar-width: none; }
+    html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
+  `
+  document.head.appendChild(scrollbarStyle)
+
+  for (const [id, label, fallback] of colors) {
     const dropdown = $(`${id}Dropdown`)
     const trigger = dropdown?.querySelector('.dropdown-trigger')
     const input = $(id)
@@ -194,6 +204,26 @@
   }
 
   document.addEventListener('click', () => closeDropdowns())
+
+  function syncColorsToJson() {
+    const json = $('json')
+    if (!json) return
+    try {
+      const payload = JSON.parse(json.value || '{}')
+      for (const [id] of colors) {
+        const value = $(id).value.trim()
+        if (validColor(value)) payload[id] = value.toUpperCase()
+      }
+      json.value = JSON.stringify(payload, null, 2)
+    } catch (_) {}
+  }
+
+  function syncFieldsFromJson() {
+    try {
+      const payload = JSON.parse($('json').value || '{}')
+      for (const [id, , fallback] of colors) setColorControl(id, payload[id] || fallback)
+    } catch (_) {}
+  }
 
   document.querySelectorAll('#name,#uid,#text,#avatar,#showAvatar,#bg,#width,#height,#scale,#replyName,#replyText').forEach((el) => {
     el.addEventListener('input', syncColorsToJson)
