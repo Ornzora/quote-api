@@ -32,7 +32,7 @@ app.use(ratelimit({
 
 const route = new Router()
 const routes = require('./routes')
-const ui = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8')
+const ui = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8').replace('</body>', '<script src="/customization.js"></script></body>')
 const fontsDir = path.join(__dirname, 'assets', 'fonts')
 
 route.get('/', (ctx) => {
