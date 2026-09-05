@@ -11,6 +11,7 @@
   },
   "scripts": {
     "start": "node index.js",
+    "postinstall": "node scripts/download-fonts.js",
     "test": "node test-metrics.js && node test-style.js && node test-attachments.js && node test-fixes.js",
     "test:visual": "node test-real.js"
   },
@@ -20,10 +21,6 @@
   },
   "author": "LyoSU",
   "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/LyoSU/quote-api/issues"
-  },
-  "homepage": "https://github.com/LyoSU/quote-api#readme",
   "dependencies": {
     "@koa/router": "^15.7.0",
     "canvas": "^3.2.3",
