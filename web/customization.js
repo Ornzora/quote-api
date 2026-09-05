@@ -15,9 +15,6 @@
   const presetByValue = new Map(Object.entries(colorPresets).map(([name,value]) => [value.toUpperCase(),name]))
   const validColor = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(value).trim())
 
-  const formatField = document.querySelector('[data-select="format"]')?.closest('.field')
-  if (!formatField) return
-
   const makeOption = (name, value) => {
     const option = document.createElement('button')
     option.type = 'button'
@@ -29,9 +26,10 @@
   }
 
   const createColorField = ([id,label]) => {
-    const field = formatField.cloneNode(true)
-    field.classList.add('color-field')
+    const field = $(`${id}Field`)
+    if (!field) return null
     const dropdown = field.querySelector('.dropdown')
+    let trigger = dropdown?.querySelector('.dropdown-trigger')
     const trigger = dropdown?.querySelector('.dropdown-trigger')
     const menu = dropdown?.querySelector('.menu')
     const labelEl = field.querySelector('.label')
@@ -65,6 +63,13 @@
     menuToggle.setAttribute('aria-expanded', 'false')
     menuToggle.innerHTML = '<span class="chevron" aria-hidden="true"></span>'
 
+    // The source trigger is a <button>. Replace it with a neutral container
+    // before adding the editable input and preset-menu button; nested buttons
+    // are invalid HTML and can cause browsers to drop the colour control.
+    const colorTrigger = document.createElement('div')
+    colorTrigger.className = `${trigger.className} color-trigger`
+    trigger.replaceWith(colorTrigger)
+    trigger = colorTrigger
     trigger.classList.add('color-trigger')
     trigger.replaceChildren(input, menuToggle)
 
@@ -83,6 +88,15 @@
     // Selecting "Custom HEX" must still reveal the input instead of routing
     // back through setValue(), which correctly recognizes that preset.
     const selectCustom = () => {
+      const currentValue = dropdown.dataset.value === 'custom' ? input.value : dropdown.dataset.value
+      dropdown.dataset.value = 'custom'
+      input.value = validColor(currentValue) ? currentValue.trim().toUpperCase() : defaults[id]
+      input.readOnly = false
+      menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === 'custom'))
+      requestAnimationFrame(() => input.focus())
+    }
+
+    const toggleMenu = (event) => {
       dropdown.dataset.value = 'custom'
       triggerText.textContent = 'Custom HEX'
       menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === 'custom'))
@@ -144,16 +158,13 @@
   const [bubbleField,nameField,textField] = colors.map(createColorField)
   if (!bubbleField || !nameField || !textField) return
 
-  // Only add the new color controls. Never remove or rebuild the existing controls.
-  const originalGrid = bg.closest('.grid2')
-  const colorRow1 = document.createElement('div')
-  colorRow1.className = 'grid2 customization-row'
-  colorRow1.append(bubbleField,nameField)
-  const colorRow2 = document.createElement('div')
-  colorRow2.className = 'grid2 customization-row'
-  colorRow2.append(textField)
-  originalGrid?.parentElement?.insertBefore(colorRow1, originalGrid.nextSibling)
-  originalGrid?.parentElement?.insertBefore(colorRow2, colorRow1.nextSibling)
+  // The original playground script rebuilds Advanced JSON when a base field
+  // changes. Re-apply colour fields afterwards so a valid custom HEX is not
+  // silently dropped before Generate is pressed.
+  ;['name','uid','text','avatar','showAvatar','bg','width','height','scale','replyName','replyText','hasReply'].forEach(id => {
+    $(id)?.addEventListener('input', () => setTimeout(syncColorsToJson, 0))
+    $(id)?.addEventListener('change', () => setTimeout(syncColorsToJson, 0))
+  })
 
   // The original playground script rebuilds Advanced JSON when a base field
   // changes. Re-apply colour fields afterwards so a valid custom HEX is not
