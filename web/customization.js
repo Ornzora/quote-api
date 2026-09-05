@@ -74,5 +74,15 @@
     )
   }
 
+  // Revoke the previous preview object URL after the new image is loaded.
+  const resultImage = $('resultImage')
+  let previousUrl = null
+  const observer = resultImage && new MutationObserver(() => {
+    const nextUrl = resultImage.src
+    if (previousUrl && previousUrl !== nextUrl) URL.revokeObjectURL(previousUrl)
+    previousUrl = nextUrl
+  })
+  observer?.observe(resultImage, { attributes: true, attributeFilter: ['src'] })
+
   syncColorsToJson()
 })()
