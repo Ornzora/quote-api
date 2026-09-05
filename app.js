@@ -41,8 +41,6 @@ app.use(ratelimit({
   }
 }))
 
-app.use(require('./helpers').helpersApi)
-
 const route = new Router()
 const routes = require('./routes')
 
@@ -78,6 +76,13 @@ route.get('/', (ctx) => {
 route.get('/health', (ctx) => {
   ctx.status = 200
   ctx.body = { status: 'ok', timestamp: Date.now() }
+})
+
+// The legacy result formatter must not intercept the public landing page
+// or health endpoint. It is still applied to the actual API routes.
+app.use(async (ctx, next) => {
+  if (ctx.path === '/' || ctx.path === '/health') return next()
+  return require('./helpers').helpersApi(ctx, next)
 })
 
 route.use('/*', routes.routeApi.routes())
