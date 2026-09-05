@@ -2,22 +2,22 @@ const fs = require('fs/promises')
 const path = require('path')
 
 const fontsDir = path.resolve(__dirname, '../assets/fonts')
-const base = 'https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf'
+const base = 'https://raw.githubusercontent.com/Frenzycore/VoxLabs/main/public/fonts'
 
 const fonts = {
-  'NotoSans-Regular.ttf': `${base}/NotoSans/NotoSans-Regular.ttf`,
-  'NotoSans-Bold.ttf': `${base}/NotoSans/NotoSans-Bold.ttf`,
-  'NotoSans-Italic.ttf': `${base}/NotoSans/NotoSans-Italic.ttf`,
-  'NotoSans-BoldItalic.ttf': `${base}/NotoSans/NotoSans-BoldItalic.ttf`,
-  'NotoSansMono-Regular.ttf': `${base}/NotoSansMono/NotoSansMono-Regular.ttf`,
-  'NotoSansMono-Bold.ttf': `${base}/NotoSansMono/NotoSansMono-Bold.ttf`
+  'nunito-latin-400-normal.woff2': `${base}/nunito-latin-400-normal.woff2`,
+  'nunito-latin-600-normal.woff2': `${base}/nunito-latin-600-normal.woff2`,
+  'nunito-latin-700-normal.woff2': `${base}/nunito-latin-700-normal.woff2`,
+  'nunito-latin-800-normal.woff2': `${base}/nunito-latin-800-normal.woff2`,
+  'pacifico-latin-400-normal.woff2': `${base}/pacifico-latin-400-normal.woff2`,
+  'pacifico-latin-400-normal.woff': `${base}/pacifico-latin-400-normal.woff`
 }
 
 async function download (url, destination) {
   const response = await fetch(url, { redirect: 'follow' })
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`)
   const buffer = Buffer.from(await response.arrayBuffer())
-  if (buffer.length < 10000) throw new Error('downloaded file is unexpectedly small')
+  if (buffer.length < 1000) throw new Error('downloaded file is unexpectedly small')
   await fs.writeFile(destination, buffer)
 }
 
@@ -28,20 +28,20 @@ async function main () {
     const destination = path.join(fontsDir, name)
     try {
       const stat = await fs.stat(destination)
-      if (stat.size >= 10000) {
+      if (stat.size >= 1000) {
         console.log(`Font already exists: ${name}`)
         continue
       }
     } catch (_) {}
 
-    console.log(`Downloading ${name}...`)
+    console.log(`Downloading reference font: ${name}`)
     await download(url, destination)
   }
 
-  console.log('Noto fonts ready')
+  console.log('Reference Vox Labs fonts ready')
 }
 
 main().catch(error => {
-  console.error('Failed to download Noto fonts:', error.message)
+  console.error('Failed to download reference fonts:', error.message)
   process.exitCode = 1
 })
