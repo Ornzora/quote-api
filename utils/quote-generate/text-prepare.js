@@ -30,8 +30,6 @@ function getMeasureCtx () {
 const emojiImageCache = new Map()
 const emojiLoadingPromises = new Map()
 
-// Use portable families on Vercel/Linux. Custom font assets are optional;
-// canvas/Pango will resolve these families to an installed system font.
 const BASE_FONT = 'sans-serif'
 const MONO_FONT = 'monospace'
 
@@ -42,7 +40,6 @@ const fontMetricsCache = new Map()
 function fontMetrics (fontSize) {
   let m = fontMetricsCache.get(fontSize)
   if (m) return m
-
   const ctx = getMeasureCtx()
   ctx.font = `${fontSize}px ${BASE_FONT}`
   const em = ctx.measureText('Mg')
@@ -50,7 +47,6 @@ function fontMetrics (fontSize) {
   const deep = ctx.measureText(PROBE_DEEP)
   const emAscent = Number.isFinite(em.emHeightAscent) ? em.emHeightAscent : fontSize * 1.05
   const emDescent = Number.isFinite(em.emHeightDescent) ? em.emHeightDescent : fontSize * 0.3
-
   m = {
     ascent: Math.ceil(Math.max(emAscent, tall.actualBoundingBoxAscent || 0, fontSize * 0.85)),
     descent: Math.ceil(Math.max(emDescent, deep.actualBoundingBoxDescent || 0, fontSize * 0.3))
@@ -71,11 +67,9 @@ function resolveFont (styles, fontSize) {
 function buildStyledChars (text, entities) {
   const chars = text.split('')
   const styledChars = chars.map(char => ({ char, styles: [] }))
-
   if (entities && typeof entities === 'string') {
     for (const sc of styledChars) sc.styles.push(entities)
   }
-
   if (Array.isArray(entities)) {
     for (const entity of entities) {
       const style = ENTITY_TYPES_MONOSPACE.includes(entity.type)
@@ -83,17 +77,14 @@ function buildStyledChars (text, entities) {
         : ENTITY_TYPES_MENTION.includes(entity.type)
           ? 'mention'
           : entity.type
-
       if (entity.type === 'custom_emoji' && styledChars[entity.offset]) {
         styledChars[entity.offset].customEmojiId = entity.custom_emoji_id
       }
-
       for (let i = entity.offset; i < entity.offset + entity.length; i++) {
         if (styledChars[i]) styledChars[i].styles.push(style)
       }
     }
   }
-
   return styledChars
 }
 
@@ -117,12 +108,10 @@ async function loadEmojiImages (emojis, emojiBrand) {
 
   for (const emoji of emojis) {
     const cacheKey = `${emojiBrand}:${emoji.found}`
-
     if (emojiImageCache.has(cacheKey)) {
       localMap.set(emoji.found, emojiImageCache.get(cacheKey))
       continue
     }
-
     if (emojiLoadingPromises.has(cacheKey)) {
       promises.push(emojiLoadingPromises.get(cacheKey).then(img => {
         if (img) localMap.set(emoji.found, img)
@@ -133,7 +122,6 @@ async function loadEmojiImages (emojis, emojiBrand) {
     const p = (async () => {
       let image = null
       const base = emojiImageJson[emoji.found]
-
       if (base) {
         try {
           image = await loadImage(Buffer.from(base, 'base64'))
@@ -143,7 +131,6 @@ async function loadEmojiImages (emojis, emojiBrand) {
       } else {
         try { image = await loadImage(Buffer.from(fallbackJson[emoji.found], 'base64')) } catch (_) {}
       }
-
       if (image) {
         emojiImageCache.set(cacheKey, image)
         localMap.set(emoji.found, image)
@@ -162,7 +149,6 @@ async function loadEmojiImages (emojis, emojiBrand) {
 async function loadCustomEmojis (customEmojiIds, telegram) {
   const result = {}
   if (customEmojiIds.length === 0 || !telegram) return result
-
   const stickers = await telegram.callApi('getCustomEmojiStickers', {
     custom_emoji_ids: customEmojiIds
   }).catch(() => null)
@@ -177,7 +163,6 @@ async function loadCustomEmojis (customEmojiIds, telegram) {
     const png = await sharp(data).png({ lossless: true, force: true }).toBuffer()
     result[sticker.custom_emoji_id] = await loadImage(png).catch(() => null)
   })
-
   await Promise.all(promises).catch(() => {})
   return result
 }
@@ -191,7 +176,6 @@ function tokenize (text, styledChars, fontSize, emojiMap, customEmojiMap) {
     const start = wordSeg.index
     const end = start + wordSeg.segment.length
     let subStart = start
-
     for (let i = start; i < end; i++) {
       const cur = styledChars[i]
       const prev = i > subStart ? styledChars[i - 1] : null
@@ -202,16 +186,13 @@ function tokenize (text, styledChars, fontSize, emojiMap, customEmojiMap) {
         (cur.emoji && prev.emoji && cur.emoji.index !== prev.emoji.index) ||
         (cur.styles.toString() !== prev.styles.toString())
       ))
-
       if (needsSplit) {
         if (i > subStart) pushSegment(segments, styledChars, subStart, i, fontSize, emojiSize, emojiMap, customEmojiMap)
         subStart = i
       }
     }
-
     if (subStart < end) pushSegment(segments, styledChars, subStart, end, fontSize, emojiSize, emojiMap, customEmojiMap)
   }
-
   return segments
 }
 
@@ -219,7 +200,6 @@ function pushSegment (segments, styledChars, start, end, fontSize, emojiSize, em
   const first = styledChars[start]
   let text = ''
   for (let i = start; i < end; i++) text += styledChars[i].char
-
   let kind = 'text'
   if (text.match(BREAK_REGEX)) kind = 'break'
   else if (text.match(SPACE_REGEX) && !text.match(/\S/)) kind = 'space'
@@ -228,7 +208,6 @@ function pushSegment (segments, styledChars, start, end, fontSize, emojiSize, em
   let emojiImage = null
   const emojiCode = first.emoji ? first.emoji.code : null
   const customEmojiId = first.customEmojiId || null
-
   if (first.emoji) {
     if (customEmojiId && customEmojiMap[customEmojiId]) emojiImage = customEmojiMap[customEmojiId]
     else emojiImage = emojiMap.get(first.emoji.code) || null
@@ -243,73 +222,47 @@ function pushSegment (segments, styledChars, start, end, fontSize, emojiSize, em
     emojiImage,
     emojiCode,
     customEmojiId,
-    width: 0
+    width: 0,
+    fontSize
   })
 }
 
 function splitCJKSegments (segments) {
   const result = []
-
   for (const seg of segments) {
     if (seg.kind !== 'text' || !seg.text.match(CJK_REGEX)) {
       result.push(seg)
       continue
     }
-
     const graphemes = [...graphemeSegmenter.segment(seg.text)]
     if (graphemes.length <= 1) {
       result.push(seg)
       continue
     }
-
     let runStart = 0
     let runIsCJK = !!graphemes[0].segment.match(CJK_REGEX)
-
     for (let g = 1; g <= graphemes.length; g++) {
-      const curIsCJK = g < graphemes.length
-        ? !!graphemes[g].segment.match(CJK_REGEX)
-        : !runIsCJK
-
+      const curIsCJK = g < graphemes.length ? !!graphemes[g].segment.match(CJK_REGEX) : !runIsCJK
       if (curIsCJK !== runIsCJK || g === graphemes.length) {
         if (runIsCJK) {
           for (let j = runStart; j < g; j++) {
-            result.push({
-              text: graphemes[j].segment,
-              kind: 'text',
-              styles: [...seg.styles],
-              font: seg.font,
-              emojiImage: null,
-              emojiCode: null,
-              customEmojiId: null,
-              width: 0
-            })
+            result.push({ text: graphemes[j].segment, kind: 'text', styles: [...seg.styles], font: seg.font, emojiImage: null, emojiCode: null, customEmojiId: null, width: 0, fontSize: seg.fontSize })
           }
         } else {
           let runText = ''
           for (let j = runStart; j < g; j++) runText += graphemes[j].segment
-          result.push({
-            text: runText,
-            kind: 'text',
-            styles: [...seg.styles],
-            font: seg.font,
-            emojiImage: null,
-            emojiCode: null,
-            customEmojiId: null,
-            width: 0
-          })
+          result.push({ text: runText, kind: 'text', styles: [...seg.styles], font: seg.font, emojiImage: null, emojiCode: null, customEmojiId: null, width: 0, fontSize: seg.fontSize })
         }
         runStart = g
         runIsCJK = curIsCJK
       }
     }
   }
-
   return result
 }
 
 function mergePunctuation (segments) {
   const result = []
-
   for (const seg of segments) {
     if (seg.kind === 'text' && seg.text.length === 1 && LEFT_STICKY_PUNCTUATION.has(seg.text) && result.length > 0) {
       const prev = result[result.length - 1]
@@ -322,16 +275,13 @@ function mergePunctuation (segments) {
     }
     result.push(seg)
   }
-
   return result
 }
 
 function applyKinsoku (segments) {
   const result = []
-
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i]
-
     if (seg.kind === 'text' && seg.text.length === 1 && KINSOKU_START.has(seg.text) && result.length > 0) {
       const prev = result[result.length - 1]
       if (prev.kind === 'text' && prev.styles.toString() === seg.styles.toString()) {
@@ -341,48 +291,31 @@ function applyKinsoku (segments) {
         continue
       }
     }
-
     if (seg.kind === 'text' && seg.text.length === 1 && KINSOKU_END.has(seg.text) && i + 1 < segments.length) {
       const next = segments[i + 1]
       if (next.kind === 'text' && seg.styles.toString() === next.styles.toString()) {
-        segments[i + 1] = {
-          text: seg.text + next.text,
-          kind: next.kind,
-          styles: [...next.styles],
-          font: next.font,
-          emojiImage: next.emojiImage,
-          emojiCode: next.emojiCode,
-          customEmojiId: next.customEmojiId,
-          width: 0,
-          _graphemeWidths: null
-        }
+        segments[i + 1] = { text: seg.text + next.text, kind: next.kind, styles: [...next.styles], font: next.font, emojiImage: next.emojiImage, emojiCode: next.emojiCode, customEmojiId: next.customEmojiId, width: 0, fontSize: next.fontSize, _graphemeWidths: null }
         continue
       }
     }
-
     result.push(seg)
   }
-
   return result
 }
 
-function measureSegments (segments) {
+function measureSegments (segments, fontSize) {
   const ctx = getMeasureCtx()
-  const emojiSize = segments.length > 0 && segments[0].fontSize
-    ? segments[0].fontSize * EMOJI_SCALE
-    : null
+  const emojiSize = fontSize * EMOJI_SCALE
   let currentFont = null
-
   for (const seg of segments) {
     if (seg.kind === 'emoji') {
-      seg.width = emojiSize || 0
+      seg.width = emojiSize
       continue
     }
     if (seg.kind === 'break') {
       seg.width = 0
       continue
     }
-
     if (currentFont !== seg.font) {
       ctx.font = seg.font
       currentFont = seg.font
@@ -393,7 +326,6 @@ function measureSegments (segments) {
 
 function computeGraphemeWidths (segment) {
   if (segment._graphemeWidths) return segment._graphemeWidths
-
   const ctx = getMeasureCtx()
   ctx.font = segment.font
   const graphemes = [...graphemeSegmenter.segment(segment.text)]
@@ -416,7 +348,6 @@ async function prepareText (text, entities, fontSize, emojiBrand, telegram) {
   }
 
   text = String(text).replace(/і/g, 'i')
-
   const styledChars = buildStyledChars(text, entities)
   const emojis = mapEmojis(text, styledChars)
   const emojiMap = await loadEmojiImages(emojis, emojiBrand)
@@ -431,7 +362,7 @@ async function prepareText (text, entities, fontSize, emojiBrand, telegram) {
   segments = splitCJKSegments(segments)
   segments = mergePunctuation(segments)
   segments = applyKinsoku(segments)
-  measureSegments(segments)
+  measureSegments(segments, fontSize)
 
   return {
     segments,
