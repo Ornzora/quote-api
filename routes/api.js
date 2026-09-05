@@ -4,9 +4,11 @@ const api = new Router()
 const method = require('../methods')
 
 const apiHandle = async (ctx) => {
-  const methodWithExt = ctx.params[0].match(/(.*).(png|webp)/)
+  const rawPath = ctx.params.path
+  const requestPath = Array.isArray(rawPath) ? rawPath.join('/') : rawPath
+  const methodWithExt = requestPath.match(/(.*)\.(png|webp)$/)
   if (methodWithExt) ctx.props.ext = methodWithExt[2]
-  ctx.result = await method(methodWithExt ? methodWithExt[1] : ctx.params[0], ctx.props)
+  ctx.result = await method(methodWithExt ? methodWithExt[1] : requestPath, ctx.props)
 }
 
 api.post('/', apiHandle)
