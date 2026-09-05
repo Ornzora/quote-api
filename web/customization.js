@@ -36,7 +36,10 @@
 
   const closeDropdowns = (except = null) => {
     document.querySelectorAll('.color-dropdown.open').forEach((dropdown) => {
-      if (dropdown !== except) dropdown.classList.remove('open')
+      if (dropdown !== except) {
+        dropdown.classList.remove('open')
+        dropdown.querySelector('.dropdown-trigger')?.setAttribute('aria-expanded', 'false')
+      }
     })
   }
 
@@ -73,33 +76,36 @@
     return field
   }
 
-  const colorFields = colors.map(createColorField)
-  bgField?.after(...colorFields)
+  bgField?.after(...colors.map(createColorField))
 
   const formatElement = $('format')
   const scaleElement = $('scale')
   const formatField = formatElement?.closest('.field')
   const scaleField = scaleElement?.closest('.field')
+  const replyNameField = $('replyName')?.closest('.field')
+  const replyTextField = $('replyText')?.closest('.field')
 
-  // Keep output controls balanced: Format + Scale on one row, Reply Name + Reply Text below.
+  // Make the output controls a complete two-column row: Format + Scale.
+  // Then unwrap the reply row so Reply name + Reply text remain a clean pair.
   if (formatField && scaleField && formatField !== scaleField) {
     const formatParent = formatField.parentElement
     const scaleParent = scaleField.parentElement
-    const replyNameField = $('replyName')?.closest('.field')
-    const replyTextField = $('replyText')?.closest('.field')
+    const replyGrid = replyNameField?.parentElement === replyTextField?.parentElement ? replyNameField.parentElement : null
 
-    const row = document.createElement('div')
-    row.className = 'grid2 output-controls'
-    row.append(formatField, scaleField)
+    if (formatParent) {
+      const row = document.createElement('div')
+      row.className = 'grid2 output-controls'
+      formatParent.insertBefore(row, formatField)
+      row.append(formatField, scaleField)
+    }
 
-    if (formatParent) formatParent.insertBefore(row, formatField.nextSibling)
-    if (scaleParent && scaleParent !== formatParent && scaleParent.contains(scaleField)) scaleParent.removeChild(scaleField)
+    if (replyGrid?.classList.contains('grid2') && replyGrid.children.length === 2) {
+      replyGrid.replaceWith(replyNameField, replyTextField)
+    }
 
-    if (replyNameField && replyTextField && replyNameField.parentElement === replyTextField.parentElement) {
-      const replyGrid = replyNameField.parentElement
-      if (replyGrid.classList.contains('grid2') && replyGrid.children.length === 2) {
-        replyGrid.replaceWith(replyNameField, replyTextField)
-      }
+    // If Scale originally lived in a separate grid, moving it above leaves no orphaned wrapper.
+    if (scaleParent && scaleParent !== formatParent && scaleParent.classList.contains('grid2') && scaleParent.children.length === 0) {
+      scaleParent.remove()
     }
   }
 
@@ -108,12 +114,11 @@
     const dropdown = $(`${id}Dropdown`)
     if (!input || !dropdown) return
 
-    const trigger = dropdown.querySelector('.dropdown-trigger')
     const selected = dropdown.querySelector('.color-selected')
+    const trigger = dropdown.querySelector('.dropdown-trigger')
     const options = dropdown.querySelectorAll('.option')
     const normalized = String(value || defaults[id]).trim().toUpperCase()
     const presetName = presetByValue.get(normalized)
-    const optionValue = presetName ? colorPresets[presetName] : 'custom'
 
     if (presetName) {
       input.value = normalized
@@ -125,7 +130,9 @@
       selected.textContent = 'Custom HEX'
     }
 
-    options.forEach((option) => option.classList.toggle('active', option.dataset.value === optionValue))
+    options.forEach((option) => option.classList.toggle('active', presetName
+      ? option.dataset.value.toUpperCase() === normalized
+      : option.dataset.value === 'custom'))
     trigger?.setAttribute('aria-expanded', 'false')
   }
 
@@ -149,7 +156,7 @@
     } catch (_) {}
   }
 
-  for (const [id, label, fallback] of colors) {
+  for (const [id, , fallback] of colors) {
     const dropdown = $(`${id}Dropdown`)
     const trigger = dropdown?.querySelector('.dropdown-trigger')
     const input = $(id)
@@ -174,6 +181,7 @@
           dropdown.querySelector('.color-selected').textContent = `${option.dataset.name} — ${input.value}`
           syncColorsToJson()
         }
+
         dropdown.querySelectorAll('.option').forEach((item) => item.classList.toggle('active', item === option))
         dropdown.classList.remove('open')
         trigger?.setAttribute('aria-expanded', 'false')
