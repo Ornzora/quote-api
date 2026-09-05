@@ -347,7 +347,7 @@ async function prepareText (text, entities, fontSize, emojiBrand, telegram) {
     }
   }
 
-  text = String(text).replace(/і/g, 'i')
+  text = String(text)
   const styledChars = buildStyledChars(text, entities)
   const emojis = mapEmojis(text, styledChars)
   const emojiMap = await loadEmojiImages(emojis, emojiBrand)
