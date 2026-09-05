@@ -9,8 +9,6 @@ const methods = {
   generate
 }
 
-// Keep the in-process cache bounded for serverless runtimes. The previous
-// 1 GB ceiling could retain a large number of generated base64 images.
 const cache = new LRU({
   max: 64 * 1024 * 1024,
   length: (n) => sizeof(n),
@@ -32,10 +30,13 @@ module.exports = async (method, parm) => {
     let requestedFormat = null
 
     if (method === 'generate') {
-      const width = parm && parm.width != null ? Number(parm.width) : 512
-      const height = parm && parm.height != null ? Number(parm.height) : 512
-      const scale = parm && parm.scale != null ? Number(parm.scale) : 2
-      const format = parm && parm.format != null ? String(parm.format).toLowerCase() : 'png'
+      if (!parm) return { error: 'query_empty' }
+      if (!Array.isArray(parm.messages) || parm.messages.length < 1) return { error: 'messages_empty' }
+
+      const width = parm.width != null && parm.width !== '' ? Number(parm.width) : 512
+      const height = parm.height != null && parm.height !== '' ? Number(parm.height) : 512
+      const scale = parm.scale != null && parm.scale !== '' ? Number(parm.scale) : 2
+      const format = parm.format != null && parm.format !== '' ? String(parm.format).toLowerCase() : 'png'
       requestedFormat = format
 
       if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > MAX_DIMENSION || height > MAX_DIMENSION) {
@@ -48,9 +49,9 @@ module.exports = async (method, parm) => {
         return { error: 'format must be png or webp' }
       }
 
-      const bubbleColor = normalizeQuoteColor(parm && parm.bubbleColor, '#FFFFFF')
-      const nameColor = normalizeQuoteColor(parm && parm.nameColor, '#000000')
-      const textColor = normalizeQuoteColor(parm && parm.textColor, '#000000')
+      const bubbleColor = normalizeQuoteColor(parm.bubbleColor, '#FFFFFF')
+      const nameColor = normalizeQuoteColor(parm.nameColor, '#000000')
+      const textColor = normalizeQuoteColor(parm.textColor, '#000000')
       if (!bubbleColor || !nameColor || !textColor) {
         return { error: 'bubbleColor, nameColor, and textColor must be valid hex colors (#RGB or #RRGGBB)' }
       }
