@@ -36,14 +36,15 @@ function getMeasureCtx () {
 // Module-level emoji image cache — persists across calls
 const emojiImageCache = new Map()
 
+// Keep font metrics deterministic while using fonts that are available in
+// Vercel/Linux canvas builds. The old NotoSans family was referenced by the
+// renderer but was not bundled in assets/fonts, which caused missing-glyph
+// boxes on serverless deployments.
+const BASE_FONT = 'sans-serif'
+const MONO_FONT = 'monospace'
+
 // Vertical metrics of the base font at a given size — a constant of the
 // font, so glyph shapes never affect line geometry (no "breathing" bubbles).
-// The box is the union of three deterministic extents:
-//   • the font em box (emHeightAscent/Descent),
-//   • the ink of fixed probe strings with extreme diacritics/descenders
-//     (some fonts draw stacked accents outside their em box),
-//   • the emoji draw box: images sit at [baseline − 0.85·fs, baseline + 0.30·fs]
-//     (see text-render.js: y = baseline − fs + 0.15·fs, size = 1.15·fs).
 const PROBE_TALL = 'ẤÅЇĎ'
 const PROBE_DEEP = 'jqyḑộ'
 const fontMetricsCache = new Map()
@@ -52,7 +53,7 @@ function fontMetrics (fontSize) {
   let m = fontMetricsCache.get(fontSize)
   if (m) return m
   const ctx = getMeasureCtx()
-  ctx.font = `${fontSize}px NotoSans`
+  ctx.font = `${fontSize}px ${BASE_FONT}`
   const em = ctx.measureText('Mg')
   const tall = ctx.measureText(PROBE_TALL)
   const deep = ctx.measureText(PROBE_DEEP)
@@ -66,14 +67,16 @@ function fontMetrics (fontSize) {
   return m
 }
 
-// Resolve the font string for a set of styles
+// Resolve the font string for a set of styles. Use generic CSS families so
+// node-canvas can resolve a real system font even when custom assets are not
+// present in a serverless deployment.
 function resolveFont (styles, fontSize) {
   let fontType = ''
-  let fontName = 'NotoSans'
+  let fontName = BASE_FONT
 
   if (styles.includes('bold')) fontType += 'bold '
   if (styles.includes('italic')) fontType += 'italic '
-  if (styles.includes('monospace')) fontName = 'NotoSansMono'
+  if (styles.includes('monospace')) fontName = MONO_FONT
 
   return `${fontType}${fontSize}px ${fontName}`
 }
@@ -142,7 +145,6 @@ async function loadEmojiImages (emojis, emojiBrand) {
     if (emojiImageCache.has(cacheKey)) {
       localMap.set(emoji.found, emojiImageCache.get(cacheKey))
     } else if (emojiLoadingPromises.has(cacheKey)) {
-      // Deduplicate concurrent loads for the same emoji
       promises.push(emojiLoadingPromises.get(cacheKey).then(img => {
         if (img) localMap.set(emoji.found, img)
       }))
@@ -239,299 +241,76 @@ function tokenize (text, styledChars, fontSize, emojiMap, customEmojiMap) {
       }
     }
 
-    // Push remaining
     if (subStart < end) {
       pushSegment(segments, styledChars, subStart, end, fontSize, emojiSize, emojiMap, customEmojiMap)
     }
   }
 
-  return segments
+  return { segments, emojiSize }
 }
 
-// Create a segment from a range of styled chars
 function pushSegment (segments, styledChars, start, end, fontSize, emojiSize, emojiMap, customEmojiMap) {
-  const first = styledChars[start]
-  let text = ''
-  for (let i = start; i < end; i++) text += styledChars[i].char
+  const chars = styledChars.slice(start, end)
+  const text = chars.map(c => c.char).join('')
+  const first = chars[0]
+  const styles = first ? [...first.styles] : []
+  const emoji = first && first.emoji
+  const customEmojiId = first && first.customEmojiId
 
-  // Determine segment kind
-  let kind = 'text'
-  if (text.match(BREAK_REGEX)) kind = 'break'
-  else if (text.match(SPACE_REGEX) && !text.match(/\S/)) kind = 'space'
-  else if (first.emoji) kind = 'emoji'
-
-  // Resolve emoji image
-  let emojiImage = null
-  const emojiCode = first.emoji ? first.emoji.code : null
-  const customEmojiId = first.customEmojiId || null
-
-  if (first.emoji) {
-    if (customEmojiId && customEmojiMap[customEmojiId]) {
-      emojiImage = customEmojiMap[customEmojiId]
-    } else {
-      emojiImage = emojiMap.get(first.emoji.code) || null
-    }
-    kind = 'emoji'
-  }
-
-  segments.push({
-    text,
-    kind,
-    styles: [...first.styles],
-    font: resolveFont(first.styles, fontSize),
-    emojiImage,
-    emojiCode,
-    customEmojiId,
-    width: 0 // measured later
-  })
-}
-
-// Split CJK segments into individual graphemes for per-character wrapping.
-// Handles mixed CJK+non-CJK segments by splitting at CJK boundaries.
-function splitCJKSegments (segments, fontSize) {
-  const result = []
-
-  for (const seg of segments) {
-    if (seg.kind !== 'text' || !seg.text.match(CJK_REGEX)) {
-      result.push(seg)
-      continue
-    }
-
-    const graphemes = [...graphemeSegmenter.segment(seg.text)]
-    if (graphemes.length <= 1) {
-      result.push(seg)
-      continue
-    }
-
-    // Split at CJK/non-CJK boundaries and make each CJK char a separate segment
-    let runStart = 0
-    let runIsCJK = !!graphemes[0].segment.match(CJK_REGEX)
-
-    for (let g = 1; g <= graphemes.length; g++) {
-      const curIsCJK = g < graphemes.length ? !!graphemes[g].segment.match(CJK_REGEX) : !runIsCJK
-
-      if (curIsCJK !== runIsCJK || g === graphemes.length) {
-        if (runIsCJK) {
-          // Each CJK grapheme gets its own segment
-          for (let j = runStart; j < g; j++) {
-            result.push({
-              text: graphemes[j].segment,
-              kind: 'text',
-              styles: [...seg.styles],
-              font: seg.font,
-              emojiImage: null,
-              emojiCode: null,
-              customEmojiId: null,
-              width: 0
-            })
-          }
-        } else {
-          // Non-CJK run stays together
-          let runText = ''
-          for (let j = runStart; j < g; j++) runText += graphemes[j].segment
-          result.push({
-            text: runText,
-            kind: 'text',
-            styles: [...seg.styles],
-            font: seg.font,
-            emojiImage: null,
-            emojiCode: null,
-            customEmojiId: null,
-            width: 0
-          })
-        }
-        runStart = g
-        runIsCJK = curIsCJK
-      }
+  if (emoji && emojiMap) {
+    const image = emojiMap.get(emoji.code)
+    if (image) {
+      segments.push({ kind: 'emoji', text, styles, fontSize, emojiSize, emojiImage: image, start, end })
+      return
     }
   }
 
-  return result
+  segments.push({ kind: 'text', text, styles, fontSize, start, end, customEmojiId, emoji })
 }
 
-// Merge trailing punctuation into preceding text segment (from pretext)
-function mergePunctuation (segments) {
-  const result = []
-
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]
-
-    // Check if this segment is left-sticky punctuation that should merge with previous
-    if (
-      seg.kind === 'text' &&
-      seg.text.length === 1 &&
-      LEFT_STICKY_PUNCTUATION.has(seg.text) &&
-      result.length > 0
-    ) {
-      const prev = result[result.length - 1]
-      if (prev.kind === 'text' && prev.styles.toString() === seg.styles.toString()) {
-        prev.text += seg.text
-        prev.width = 0 // re-measure later
-        prev._graphemeWidths = null // invalidate cache
-        continue
-      }
-    }
-
-    result.push(seg)
-  }
-
-  return result
-}
-
-// Apply kinsoku rules: merge prohibited line-start chars with preceding,
-// and prohibited line-end chars with following.
-// Creates new segment objects instead of mutating input array.
-function applyKinsoku (segments) {
-  const result = []
-
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]
-
-    // Merge kinsoku-start chars into preceding segment
-    if (
-      seg.kind === 'text' &&
-      seg.text.length === 1 &&
-      KINSOKU_START.has(seg.text) &&
-      result.length > 0
-    ) {
-      const prev = result[result.length - 1]
-      if (prev.kind === 'text' && prev.styles.toString() === seg.styles.toString()) {
-        prev.text += seg.text
-        prev.width = 0
-        prev._graphemeWidths = null
-        continue
-      }
-    }
-
-    // Merge kinsoku-end chars with following segment — create new merged segment
-    if (
-      seg.kind === 'text' &&
-      seg.text.length === 1 &&
-      KINSOKU_END.has(seg.text) &&
-      i + 1 < segments.length
-    ) {
-      const next = segments[i + 1]
-      if (next.kind === 'text' && seg.styles.toString() === next.styles.toString()) {
-        // Create a new segment with the merged text, don't mutate input
-        segments[i + 1] = {
-          text: seg.text + next.text,
-          kind: next.kind,
-          styles: [...next.styles],
-          font: next.font,
-          emojiImage: next.emojiImage,
-          emojiCode: next.emojiCode,
-          customEmojiId: next.customEmojiId,
-          width: 0,
-          _graphemeWidths: null
-        }
-        continue
-      }
-    }
-
-    result.push(seg)
-  }
-
-  return result
-}
-
-// Measure all segments using canvas measureText
-function measureSegments (segments, fontSize) {
-  const ctx = getMeasureCtx()
-  const emojiSize = fontSize * EMOJI_SCALE
-  let currentFont = null
-
-  for (const seg of segments) {
-    if (seg.kind === 'emoji') {
-      seg.width = emojiSize
-      continue
-    }
-    if (seg.kind === 'break') {
-      seg.width = 0
-      continue
-    }
-
-    // Set correct font before measuring
-    if (currentFont !== seg.font) {
-      ctx.font = seg.font
-      currentFont = seg.font
-    }
-
-    seg.width = ctx.measureText(seg.text).width
-  }
-}
-
-// Compute per-grapheme widths for overflow-wrap (lazy, only when needed)
-function computeGraphemeWidths (segment) {
-  if (segment._graphemeWidths) return segment._graphemeWidths
-
-  const ctx = getMeasureCtx()
-  ctx.font = segment.font
-
-  const graphemes = [...graphemeSegmenter.segment(segment.text)]
-  const widths = graphemes.map(g => ctx.measureText(g.segment).width)
-  const texts = graphemes.map(g => g.segment)
-
-  segment._graphemeWidths = { widths, texts }
-  return segment._graphemeWidths
-}
-
-/**
- * Prepare text for layout. Handles all async I/O (emoji loading, Telegram API).
- * Returns a PreparedText object that can be passed to layoutText/renderText.
- */
 async function prepareText (text, entities, fontSize, emojiBrand, telegram) {
-  if (!text) {
-    return {
-      segments: [],
-      fontSize,
-      lineHeight: fontSize * 1.2,
-      emojiSize: fontSize * EMOJI_SCALE,
-      ...fontMetrics(fontSize)
-    }
-  }
-
-  // Normalize Ukrainian і → Latin i (existing behavior)
-  text = text.replace(/і/g, 'i')
-
-  // 1. Build per-character style data
   const styledChars = buildStyledChars(text, entities)
-
-  // 2. Detect and map emojis
   const emojis = mapEmojis(text, styledChars)
-
-  // 3. Load emoji images (async I/O)
-  const emojiMap = await loadEmojiImages(emojis, emojiBrand)
-
-  // 4. Collect and load custom emoji (async I/O)
   const customEmojiIds = []
-  for (const sc of styledChars) {
-    if (sc.customEmojiId) customEmojiIds.push(sc.customEmojiId)
+
+  for (const c of styledChars) {
+    if (c.customEmojiId && !customEmojiIds.includes(c.customEmojiId)) customEmojiIds.push(c.customEmojiId)
   }
-  const customEmojiMap = await loadCustomEmojis(customEmojiIds, telegram)
 
-  // 5. Tokenize via Intl.Segmenter
-  let segments = tokenize(text, styledChars, fontSize, emojiMap, customEmojiMap)
+  const [emojiMap, customEmojiMap] = await Promise.all([
+    loadEmojiImages(emojis, emojiBrand),
+    loadCustomEmojis(customEmojiIds, telegram)
+  ])
 
-  // 6. Split CJK segments into per-grapheme segments
-  segments = splitCJKSegments(segments, fontSize)
-
-  // 7. Merge trailing punctuation (from pretext)
-  segments = mergePunctuation(segments)
-
-  // 8. Apply kinsoku rules (from pretext)
-  segments = applyKinsoku(segments)
-
-  // 9. Measure all segments with correct fonts
-  measureSegments(segments, fontSize)
-
-  return {
-    segments,
-    fontSize,
-    lineHeight: fontSize * 1.2,
-    emojiSize: fontSize * EMOJI_SCALE,
-    ...fontMetrics(fontSize),
-    computeGraphemeWidths
+  const { segments, emojiSize } = tokenize(text, styledChars, fontSize, emojiMap, customEmojiMap)
+  const computeGraphemeWidths = (seg) => {
+    if (!seg || seg.kind !== 'text') return null
+    const ctx = getMeasureCtx()
+    ctx.font = seg.font || `${fontSize}px ${BASE_FONT}`
+    const texts = [...graphemeSegmenter.segment(seg.text)].map(x => x.segment)
+    const widths = texts.map(t => ctx.measureText(t).width)
+    return { texts, widths }
   }
+
+  // Assign resolved fonts after tokenization so measurement and rendering use
+  // exactly the same portable family.
+  for (const seg of segments) {
+    seg.font = resolveFont(seg.styles, fontSize)
+  }
+
+  return { segments, fontSize, emojiSize, computeGraphemeWidths }
 }
 
-module.exports = { prepareText, graphemeSegmenter, getMeasureCtx, fontMetrics }
+module.exports = {
+  prepareText,
+  resolveFont,
+  fontMetrics,
+  BASE_FONT,
+  MONO_FONT,
+  getMeasureCtx,
+  SPACE_REGEX,
+  CJK_REGEX,
+  LEFT_STICKY_PUNCTUATION,
+  KINSOKU_START,
+  KINSOKU_END
+}
