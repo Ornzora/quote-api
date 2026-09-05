@@ -104,10 +104,6 @@
     trigger?.setAttribute('aria-expanded', 'false')
   }
 
-  const insertBefore = (parent, before, ...nodes) => {
-    nodes.forEach((node) => parent.insertBefore(node, before))
-  }
-
   const makeGrid = (...fields) => {
     const grid = document.createElement('div')
     grid.className = 'grid2 customization-row'
@@ -117,7 +113,9 @@
 
   const bgField = bg.closest('.field')
   const bgGrid = bgField?.parentElement
-  const formatField = $('format')?.closest('.field')
+  // Format is a custom dropdown identified by data-select, not an element id.
+  const formatElement = document.querySelector('[data-select="format"]')
+  const formatField = formatElement?.closest('.field')
   const formatGrid = formatField?.parentElement
   const widthField = $('width')?.closest('.field')
   const widthGrid = widthField?.parentElement
@@ -132,13 +130,13 @@
 
   // Rebuild only the small request-control portion. Existing fields, styles and behavior stay intact.
   // Rows become: Background/Bubble, Name/Text, Format/Scale, Width/Height, Reply.
-  if (bgGrid && formatField && widthGrid && scaleGrid && replyCheckField) {
+  if (bgGrid && formatField && widthGrid && heightField && scaleGrid && replyCheckField) {
     const parent = bgGrid.parentElement
 
     bgGrid.remove()
     if (formatGrid && formatGrid !== bgGrid) formatGrid.remove()
     if (widthGrid && widthGrid !== bgGrid) widthGrid.remove()
-    if (scaleGrid && scaleGrid !== bgGrid) scaleGrid.remove()
+    if (scaleGrid && scaleGrid !== bgGrid && scaleGrid !== formatGrid && scaleGrid !== widthGrid) scaleGrid.remove()
 
     const backgroundRow = makeGrid(bgField, bubbleField)
     const textColorRow = makeGrid(nameField, textField)
@@ -150,21 +148,51 @@
 
     // Keep the hidden reply fields in their original position after the reply toggle.
     const replyFields = $('replyFields')
-    if (replyGrid && replyGrid !== scaleGrid && replyGrid !== widthGrid) replyGrid.remove()
+    if (replyGrid && replyGrid !== scaleGrid && replyGrid !== widthGrid && replyGrid !== formatGrid) replyGrid.remove()
 
     insertBefore(parent, replyFields || null, backgroundRow, textColorRow, outputRow, dimensionsRow, replyRow)
 
     if (replyFields) parent.appendChild(replyFields)
   }
 
-  // Hide every scrollbar visually while preserving normal scrolling and scrollable dropdown menus.
+  // Hide scrollbars visually without disabling scrolling.
   const scrollbarStyle = document.createElement('style')
-  scrollbarStyle.id = 'quotely-scrollbar-fix'
+  scrollbarStyle.id = 'quotely-playground-fix'
   scrollbarStyle.textContent = `
     html { scrollbar-width: none; }
-    html::-webkit-scrollbar, body::-webkit-scrollbar, *::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar,
+    textarea::-webkit-scrollbar,
+    .menu::-webkit-scrollbar,
+    .code::-webkit-scrollbar,
+    *::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none !important; }
+    .customization-row.full-row > .field { grid-column: 1 / -1; }
   `
   document.head.appendChild(scrollbarStyle)
+
+  function insertBefore(parent, before, ...nodes) {
+    nodes.forEach((node) => parent.insertBefore(node, before))
+  }
+
+  function syncColorsToJson() {
+    const json = $('json')
+    if (!json) return
+    try {
+      const payload = JSON.parse(json.value || '{}')
+      for (const [id] of colors) {
+        const value = $(id).value.trim()
+        if (validColor(value)) payload[id] = value.toUpperCase()
+      }
+      json.value = JSON.stringify(payload, null, 2)
+    } catch (_) {}
+  }
+
+  function syncFieldsFromJson() {
+    try {
+      const payload = JSON.parse($('json').value || '{}')
+      for (const [id, , fallback] of colors) setColorControl(id, payload[id] || fallback)
+    } catch (_) {}
+  }
 
   for (const [id, label, fallback] of colors) {
     const dropdown = $(`${id}Dropdown`)
@@ -204,26 +232,6 @@
   }
 
   document.addEventListener('click', () => closeDropdowns())
-
-  function syncColorsToJson() {
-    const json = $('json')
-    if (!json) return
-    try {
-      const payload = JSON.parse(json.value || '{}')
-      for (const [id] of colors) {
-        const value = $(id).value.trim()
-        if (validColor(value)) payload[id] = value.toUpperCase()
-      }
-      json.value = JSON.stringify(payload, null, 2)
-    } catch (_) {}
-  }
-
-  function syncFieldsFromJson() {
-    try {
-      const payload = JSON.parse($('json').value || '{}')
-      for (const [id, , fallback] of colors) setColorControl(id, payload[id] || fallback)
-    } catch (_) {}
-  }
 
   document.querySelectorAll('#name,#uid,#text,#avatar,#showAvatar,#bg,#width,#height,#scale,#replyName,#replyText').forEach((el) => {
     el.addEventListener('input', syncColorsToJson)
