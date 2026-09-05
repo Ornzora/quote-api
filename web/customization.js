@@ -83,15 +83,15 @@
     // Selecting "Custom HEX" must still reveal the input instead of routing
     // back through setValue(), which correctly recognizes that preset.
     const selectCustom = () => {
-      const currentValue = dropdown.dataset.value === 'custom' ? input.value : dropdown.dataset.value
       dropdown.dataset.value = 'custom'
-      input.value = validColor(currentValue) ? currentValue.trim().toUpperCase() : defaults[id]
-      input.readOnly = false
+      triggerText.textContent = 'Custom HEX'
       menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === 'custom'))
+      input.value = validColor(input.value) ? input.value.trim().toUpperCase() : defaults[id]
+      input.hidden = false
       requestAnimationFrame(() => input.focus())
     }
 
-    const toggleMenu = (event) => {
+    trigger.addEventListener('click',(event) => {
       event.stopPropagation()
       document.querySelectorAll('.dropdown.open').forEach(other => {
         if (other !== dropdown) {
