@@ -13,8 +13,8 @@
   }
 
   // Reuse the same native select component as Format/Emoji brand.
-  // Keep the popup short enough that the browser does not add a scrollbar.
-  const visiblePresets = ['black','white','pink','blue','red','green','yellow','purple','grey']
+  // Keep every existing color preset available; do not remove options from the API/UI.
+  const visiblePresets = Object.keys(colorPresets)
   const colors = [['bubbleColor','Bubble color'],['nameColor','Name color'],['textColor','Text color']]
   const presetByValue = new Map(Object.entries(colorPresets).map(([name,value]) => [value.toUpperCase(),name]))
   const validColor = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(value).trim())
