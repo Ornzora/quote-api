@@ -10,32 +10,23 @@ const { drawRoundRect, drawGradientRoundRect, roundImage, drawQuoteIcon, drawLab
 const { paintMediaBadges } = require('./attachments')
 const { leaf, box, measure, place, render } = require('./layout-box')
 
-// All spacing in logical px (multiplied by scale at use). The single place
-// to tune how a quote breathes.
 const SP = {
-  padX: 16, // bubble inner padding → ink, horizontal
-  padY: 12, // bubble inner padding → first metric box (which adds its own slack)
-  // Vertical rhythm between solid blocks (reply chip, media, attachment).
-  // Text nodes override it with mt 0: their metric line box already carries
-  // the air above the cap line, so stacking at 0 lands on the same
-  // baseline-to-baseline rhythm as the text's own line height.
+  padX: 16,
+  padY: 12,
   gap: 5,
-  headerGap: 8, // min gap between name and sender tag
-  maxHeader: 300, // header/forward-label width cap — longer names fade out instead of inflating the bubble
-  radius: 25, // bubble corner radius
-  radiusGrouped: 7, // corner radius facing a same-sender neighbour bubble
-  replyThumb: 34, // reply media thumbnail side
-  shadowPad: 12, // canvas margin (right/bottom) so the drop shadow isn't clipped
-  shadowPadTop: 4, // canvas margin above the bubble (shadow blur spills up a little)
-  glass: 1.25, // frosted-glass hairline width (border + top edge highlight)
-  tail: 14, // bubble tail size (when avatar is shown)
-  minWidth: 100, // min bubble width
-  avatar: 50, // avatar diameter
-  avatarGap: 10, // avatar → bubble
-  mediaRound: 12, // media corner radius (inside a bubble)
-  // Accent block — the modern-Telegram rounded tinted block used for both
-  // the reply preview and the partial-quote body: solid bar on the left,
-  // accent tint behind, optional ❝ in the corner.
+  headerGap: 8,
+  maxHeader: 300,
+  radius: 25,
+  radiusGrouped: 7,
+  replyThumb: 34,
+  shadowPad: 12,
+  shadowPadTop: 4,
+  glass: 1.25,
+  tail: 14,
+  minWidth: 100,
+  avatar: 50,
+  avatarGap: 10,
+  mediaRound: 12,
   block: { padY: 6, padL: 10, padR: 10, padRIcon: 22, bar: 3.5, icon: 15, iconInset: 5, radius: 7, tint: 0.14, gap: 3 }
 }
 
@@ -43,19 +34,20 @@ function drawQuote (options) {
   const {
     scale = 1,
     background,
+    bubbleColor,
     avatar,
     reply,
     name,
     text,
-    textBlocks, // [{ canvas, quote: bool }] — text split around blockquote entities
+    textBlocks,
     media,
-    attachment, // pre-rendered in-bubble row canvas (voice/document/audio)
+    attachment,
     isForward,
     forwardLabel,
     nameColor,
     senderTag,
-    viaBot, // pre-rendered "via @bot" canvas (or null)
-    groupPos = 'single', // single | first | middle | last — corners facing a same-sender neighbour flatten
+    viaBot,
+    groupPos = 'single',
     isQuote
   } = options
 
@@ -67,16 +59,12 @@ function drawQuote (options) {
   const isSticker = mediaType === 'sticker'
   const nameCanvas = isSticker ? null : name
 
-  // ---- Leaves -------------------------------------------------------------
-
   let headerNode = null
   if (nameCanvas) {
     let tagLeaf = null
     if (senderTag) {
       tagLeaf = leaf(drawLabel(senderTag, s(13), background.textColor || '#fff', { alpha: 0.45 }))
     }
-    // The header fits into maxHeader as a whole: the name yields (fades)
-    // first, "via @bot" and the tag always stay visible.
     const viaLeaf = viaBot ? leaf(viaBot) : null
     let nameMax = s(SP.maxHeader)
     if (viaLeaf) nameMax -= viaLeaf.w + s(6)
@@ -97,9 +85,6 @@ function drawQuote (options) {
 
   let replyNode = null
   if (reply) {
-    // Modern Telegram renders the reply preview as a tinted accent block in
-    // the replied sender's color — same visual language as a quote. A media
-    // thumbnail (when the replied message has one) sits left of the texts.
     const replyTexts = box({ dir: 'col', gap: s(SP.block.gap), children: [leaf(reply.name), leaf(reply.text)] })
     const inner = reply.thumb
       ? box({
@@ -120,11 +105,8 @@ function drawQuote (options) {
     replyNode = accentBlock(s, reply.nameColor, { children: [inner] })
   }
 
-  // Media-only bubbles (photo with no caption/name/reply) are pure media:
-  // the photo IS the bubble, rounded with the bubble radius.
   const mediaOnly = !!mediaCanvas && !nameCanvas && !text && !reply && !forwardLabel && !attachment
 
-  // Grouped bubbles flatten the left corners that face their neighbours.
   const R = s(SP.radius)
   const rSmall = s(SP.radiusGrouped)
   const radii = {
@@ -134,10 +116,7 @@ function drawQuote (options) {
     bl: groupPos === 'first' || groupPos === 'middle' ? rSmall : R
   }
 
-  // Like Telegram, media hugs the bubble edge it borders: with no caption
-  // below (or no header above) the bubble padding on that side collapses and
-  // the media corners inherit the bubble's own radii.
-  const isRound = mediaType === 'video_note' // round video — circular mask
+  const isRound = mediaType === 'video_note'
   const hasCaption = Boolean(text) || (Array.isArray(textBlocks) && textBlocks.length > 0) || Boolean(attachment)
   const flushable = !!mediaCanvas && !mediaOnly && !isSticker && !isRound
   const flushBottom = flushable && !hasCaption
@@ -176,35 +155,26 @@ function drawQuote (options) {
           ctx.clip()
           ctx.drawImage(coverSquare(n.canvas), n.x, n.y, n.w, n.h)
         } else {
-          // roundImage clips in SOURCE pixel space; the leaf then scales the
-          // result down to n.w×n.h — so the radii must scale up by the same
-          // factor or hi-res photos end up with visually smaller corners.
           const k = n.canvas.width / n.w
           const rSrc = typeof mediaRadius === 'number'
             ? mediaRadius * k
             : { tl: mediaRadius.tl * k, tr: mediaRadius.tr * k, br: mediaRadius.br * k, bl: mediaRadius.bl * k }
           ctx.drawImage(roundImage(n.canvas, rSrc), n.x, n.y, n.w, n.h)
         }
-        // Video/GIF overlays are painted in destination space so their size
-        // doesn't depend on the source media resolution.
         if (media.badge) paintMediaBadges(ctx, n.x, n.y, n.w, n.h, media.badge, scale)
         ctx.restore()
       }
     })
   }
 
-  // Voice/document/audio rows sit in the media slot but behave like text:
-  // padded by the bubble, never flush.
   const attachmentNode = attachment ? leaf(attachment.canvas) : null
 
   let textNode = null
   if (Array.isArray(textBlocks) && textBlocks.length > 0 && !isQuote) {
-    // Text with blockquote entities: plain runs and quote runs stack in one
-    // column; each quote run gets the accent block treatment.
     const parts = textBlocks.map((b) => {
       if (b.quote) return accentBlock(s, accent, { icon: true, children: [leaf(b.canvas)] })
       const l = leaf(b.canvas)
-      if (l) l.mt = s(2) // plain runs carry their own metric air
+      if (l) l.mt = s(2)
       return l
     })
     textNode = box({ dir: 'col', gap: s(5), children: parts })
@@ -213,11 +183,7 @@ function drawQuote (options) {
       ? accentBlock(s, accent, { icon: true, children: [leaf(text)] })
       : leaf(text)
   }
-  // Text supplies its own air above the cap line (metric ascent slack) —
-  // no extra flow gap, the name reads like the previous text line.
   if (textNode && !isQuote) textNode.mt = 0
-
-  // ---- Tree ---------------------------------------------------------------
 
   const bubblePad = {
     t: flushTop ? 0 : s(SP.padY),
@@ -228,14 +194,15 @@ function drawQuote (options) {
   const tailSize = avatar ? s(SP.tail) : 0
 
   const bubbleBg = (ctx, n) => {
-    const one = background.colorOne
-    const two = background.colorTwo
+    // bubbleColor is deliberately independent from backgroundColor, which is
+    // still used by the outer image/story wallpaper.
+    const one = bubbleColor || background.colorOne
+    const two = bubbleColor || background.colorTwo
     const glassLw = s(SP.glass)
     const rect = one === two
       ? drawRoundRect(one, n.w, n.h, radii, tailSize, glassLw)
       : drawGradientRoundRect(one, two, n.w, n.h, radii, tailSize, glassLw)
     ctx.save()
-    // A soft neutral drop shadow lifts the sticker off any chat wallpaper.
     ctx.shadowColor = 'rgba(0, 0, 0, 0.24)'
     ctx.shadowBlur = s(6)
     ctx.shadowOffsetY = s(2)
@@ -245,7 +212,6 @@ function drawQuote (options) {
 
   let root
   if (isSticker) {
-    // Sticker: no bubble; an optional dark overlay chip holds the reply.
     const chip = replyNode
       ? box({
         pad: bubblePad,
@@ -265,8 +231,6 @@ function drawQuote (options) {
     })
   }
 
-  // ---- Compose ------------------------------------------------------------
-
   measure(root)
 
   const shadowPad = s(SP.shadowPad)
@@ -281,7 +245,6 @@ function drawQuote (options) {
   const ctx = canvas.getContext('2d')
   render(ctx, root)
 
-  // Avatar at the bottom-left, over the bubble tail.
   if (avatar) {
     const avatarY = Math.max(0, height - shadowPad - s(SP.avatar) - s(2))
     ctx.imageSmoothingEnabled = true
@@ -292,7 +255,6 @@ function drawQuote (options) {
   return canvas
 }
 
-// Center-crops an image/canvas to a square (cover fit) for round/thumb media.
 function coverSquare (img) {
   const side = Math.min(img.width, img.height)
   if (img.width === img.height) return img
@@ -304,10 +266,6 @@ function coverSquare (img) {
   return out
 }
 
-// The modern-Telegram accent block: rounded backdrop tinted with the accent
-// color, solid accent bar on the left, optional solid ❝ in the top-right
-// corner. Used for the reply preview (accent = replied sender's color) and
-// the partial-quote body (accent = quoted sender's color).
 function accentBlock (s, accent, { icon = false, children }) {
   const b = SP.block
   return box({
