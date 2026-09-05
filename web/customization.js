@@ -32,7 +32,7 @@
     const field = formatField.cloneNode(true)
     field.classList.add('color-field')
     const dropdown = field.querySelector('.dropdown')
-    let trigger = dropdown?.querySelector('.dropdown-trigger')
+    const trigger = dropdown?.querySelector('.dropdown-trigger')
     const menu = dropdown?.querySelector('.menu')
     const labelEl = field.querySelector('.label')
     if (!dropdown || !trigger || !menu) return null
@@ -65,13 +65,7 @@
     menuToggle.setAttribute('aria-expanded', 'false')
     menuToggle.innerHTML = '<span class="chevron" aria-hidden="true"></span>'
 
-    // The source trigger is a <button>. Replace it with a neutral container
-    // before adding the editable input and preset-menu button; nested buttons
-    // are invalid HTML and can cause browsers to drop the colour control.
-    const colorTrigger = document.createElement('div')
-    colorTrigger.className = `${trigger.className} color-trigger`
-    trigger.replaceWith(colorTrigger)
-    trigger = colorTrigger
+    trigger.classList.add('color-trigger')
     trigger.replaceChildren(input, menuToggle)
 
     const setValue = (value, focusCustom = false) => {
@@ -89,15 +83,15 @@
     // Selecting "Custom HEX" must still reveal the input instead of routing
     // back through setValue(), which correctly recognizes that preset.
     const selectCustom = () => {
-      const currentValue = dropdown.dataset.value === 'custom' ? input.value : dropdown.dataset.value
       dropdown.dataset.value = 'custom'
-      input.value = validColor(currentValue) ? currentValue.trim().toUpperCase() : defaults[id]
-      input.readOnly = false
+      triggerText.textContent = 'Custom HEX'
       menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === 'custom'))
+      input.value = validColor(input.value) ? input.value.trim().toUpperCase() : defaults[id]
+      input.hidden = false
       requestAnimationFrame(() => input.focus())
     }
 
-    const toggleMenu = (event) => {
+    trigger.addEventListener('click',(event) => {
       event.stopPropagation()
       document.querySelectorAll('.dropdown.open').forEach(other => {
         if (other !== dropdown) {
