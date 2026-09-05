@@ -20,7 +20,7 @@ function avatarImageLetters (letters, color) {
   context.fillRect(0, 0, canvas.width, canvas.height)
   const letterCount = runes(letters).length
   const fontSize = letterCount > 1 ? size * 0.38 : size * 0.48
-  context.font = `600 ${fontSize}px sans-serif`
+  context.font = `600 ${fontSize}px NotoSans`
   context.fillStyle = '#FFF'
   context.textAlign = 'center'
   context.textBaseline = 'middle'
@@ -31,7 +31,6 @@ function avatarImageLetters (letters, color) {
 async function loadAvatarSource (source) {
   if (!source || typeof source !== 'string') return null
 
-  // Browser playground uploads can be sent as compact data URLs.
   if (source.startsWith('data:image/')) {
     try {
       const comma = source.indexOf(',')
@@ -50,8 +49,6 @@ async function loadAvatarSource (source) {
     }
   }
 
-  // Prefer canvas for normal PNG/JPEG URLs. If the runtime lacks SVG support,
-  // fetch the bytes and rasterize with Sharp before giving up.
   let image = await loadImage(source).catch(() => null)
   if (image) return image
 
