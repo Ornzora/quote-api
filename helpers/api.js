@@ -1,3 +1,5 @@
+const sharp = require('sharp')
+
 module.exports = async (ctx, next) => {
   ctx.props = Object.assign({}, ctx.query || {}, ctx.request.body || {})
 
@@ -18,7 +20,10 @@ module.exports = async (ctx, next) => {
         }
       } else {
         if (ctx.result.ext) {
-          if (ctx.result.ext === 'webp') ctx.response.set('content-type', 'image/webp')
+          if (ctx.result.ext === 'webp') {
+            ctx.response.set('content-type', 'image/webp')
+            ctx.result.image = await sharp(ctx.result.image).webp({ lossless: true, force: true }).toBuffer()
+          }
           if (ctx.result.ext === 'png') ctx.response.set('content-type', 'image/png')
           ctx.response.set('quote-type', ctx.result.type)
           ctx.response.set('quote-width', ctx.result.width)
