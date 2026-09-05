@@ -41,6 +41,13 @@ route.get('/', (ctx) => {
   ctx.body = ui
 })
 
+route.get('/customization.js', (ctx) => {
+  ctx.status = 200
+  ctx.type = 'application/javascript'
+  ctx.set('Cache-Control', 'public, max-age=3600')
+  ctx.body = fs.createReadStream(path.join(__dirname, 'web', 'customization.js'))
+})
+
 route.get('/fonts/:name', (ctx) => {
   const name = path.basename(ctx.params.name)
   const allowed = /^(nunito-latin-(400|600|700|800)-normal|pacifico-latin-400-normal)\.(woff2?|woff)$/
@@ -65,7 +72,7 @@ route.get('/default-avatar.svg', (ctx) => {
 })
 
 app.use(async (ctx, next) => {
-  if (ctx.path === '/' || ctx.path === '/health' || ctx.path === '/default-avatar.svg' || ctx.path.startsWith('/fonts/')) return next()
+  if (ctx.path === '/' || ctx.path === '/health' || ctx.path === '/default-avatar.svg' || ctx.path === '/customization.js' || ctx.path.startsWith('/fonts/')) return next()
   return require('./helpers').helpersApi(ctx, next)
 })
 
