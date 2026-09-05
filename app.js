@@ -9,7 +9,9 @@ const Koa = require('koa')
 const { loadFonts } = require('./utils')
 
 const app = new Koa()
-app.use(logger())
+// koa-logger includes the request URL; query-string bot tokens must not land
+// in Vercel logs. Keep request logging for local development only.
+if (process.env.NODE_ENV !== 'production') app.use(logger())
 app.use(responseTime())
 app.use(bodyParser())
 
