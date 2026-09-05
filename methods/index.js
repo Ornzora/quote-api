@@ -29,11 +29,14 @@ function normalizeQuoteColor (value, fallback) {
 
 module.exports = async (method, parm) => {
   if (methods[method]) {
+    let requestedFormat = null
+
     if (method === 'generate') {
       const width = parm && parm.width != null ? Number(parm.width) : 512
       const height = parm && parm.height != null ? Number(parm.height) : 512
       const scale = parm && parm.scale != null ? Number(parm.scale) : 2
       const format = parm && parm.format != null ? String(parm.format).toLowerCase() : 'png'
+      requestedFormat = format
 
       if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1 || width > MAX_DIMENSION || height > MAX_DIMENSION) {
         return { error: `width and height must be finite numbers between 1 and ${MAX_DIMENSION}` }
@@ -77,7 +80,7 @@ module.exports = async (method, parm) => {
       // `/quote/generate` is a JSON/base64 endpoint. Respect its `format`
       // field too, instead of returning PNG bytes while the client labels the
       // base64 payload as WebP.
-      if (!methodResult.error && method === 'generate' && !methodResult.ext && format === 'webp') {
+      if (!methodResult.error && method === 'generate' && !methodResult.ext && requestedFormat === 'webp') {
         const input = Buffer.from(methodResult.image, 'base64')
         const output = await sharp(input).webp({ lossless: true, force: true }).toBuffer()
         methodResult.image = output.toString('base64')
