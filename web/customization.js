@@ -31,9 +31,7 @@
         if (validColor(value)) payload[id] = value.toUpperCase()
       }
       json.value = JSON.stringify(payload, null, 2)
-    } catch (_) {
-      // Advanced JSON is allowed to be temporarily invalid while editing.
-    }
+    } catch (_) {}
   }
 
   const syncFieldsFromJson = () => {
@@ -48,8 +46,6 @@
     $(id).addEventListener('change', syncColorsToJson)
   }
 
-  // The original UI owns request serialization. Run after its listeners so
-  // ordinary field edits cannot accidentally remove the color fields.
   document.querySelectorAll('#name,#uid,#text,#avatar,#showAvatar,#bg,#width,#height,#scale,#replyName,#replyText').forEach((el) => {
     el.addEventListener('input', syncColorsToJson)
     el.addEventListener('change', syncColorsToJson)
@@ -61,7 +57,6 @@
     setTimeout(syncColorsToJson, 0)
   })
 
-  // Keep the documentation aligned with the actual request contract.
   const requestTable = document.querySelector('#request-doc table tbody')
   if (requestTable) {
     for (const [id, label] of colors) {
@@ -74,8 +69,8 @@
   const quickstart = document.querySelector('#quickstart .code')
   if (quickstart && !quickstart.textContent.includes('bubbleColor')) {
     quickstart.textContent = quickstart.textContent.replace(
-      /\n\s*"text": "Hello world!"/,
-      '\n      "text": "Hello world!"\n    },\n  ],\n  "bubbleColor": "#FFFFFF",\n  "nameColor": "#000000",\n  "textColor": "#000000"'
+      /\n  ]\n}/,
+      '\n  ],\n  "bubbleColor": "#FFFFFF",\n  "nameColor": "#000000",\n  "textColor": "#000000"\n}'
     )
   }
 
