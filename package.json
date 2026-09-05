@@ -4,12 +4,10 @@
   "description": "Quote image generation API",
   "main": "index.js",
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "scripts": {
     "start": "node index.js",
-    "lint": "eslint --ext js .",
-    "lint:fix": "eslint --fix --ext js .",
     "test": "node test-metrics.js && node test-style.js && node test-attachments.js && node test-fixes.js",
     "test:visual": "node test-real.js"
   },
@@ -24,30 +22,21 @@
   },
   "homepage": "https://github.com/LyoSU/quote-api#readme",
   "dependencies": {
-    "canvas": "^2.8.0",
+    "@koa/router": "^15.7.0",
+    "canvas": "^3.2.3",
     "dotenv": "^7.0.0",
     "emoji-db": "^16.0.1",
-    "jimp": "^1.6.0",
-    "jsdom": "^16.5.3",
+    "jimp": "^1.6.1",
     "koa": "^2.11.0",
     "koa-bodyparser": "^4.2.1",
     "koa-logger": "^3.2.1",
     "koa-ratelimit": "^4.2.1",
     "koa-response-time": "^2.1.0",
-    "koa-router": "^7.4.0",
     "lru-cache": "^5.1.1",
     "object-sizeof": "^1.6.0",
     "runes": "^0.4.3",
-    "sharp": "^0.32.5",
+    "sharp": "^0.35.4",
     "smartcrop-sharp": "^2.0.7",
     "telegraf": "^3.38.0"
-  },
-  "devDependencies": {
-    "eslint": "^8.6.0",
-    "eslint-config-standard": "^12.0.0",
-    "eslint-plugin-import": "^2.17.3",
-    "eslint-plugin-node": "^9.1.0",
-    "eslint-plugin-promise": "^4.1.1",
-    "eslint-plugin-standard": "^4.0.0"
   }
 }
