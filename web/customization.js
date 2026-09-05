@@ -33,10 +33,9 @@
     field.classList.add('color-field')
     const dropdown = field.querySelector('.dropdown')
     const trigger = dropdown?.querySelector('.dropdown-trigger')
-    const triggerText = trigger?.querySelector('span')
     const menu = dropdown?.querySelector('.menu')
     const labelEl = field.querySelector('.label')
-    if (!dropdown || !trigger || !triggerText || !menu) return null
+    if (!dropdown || !trigger || !menu) return null
     if (labelEl) labelEl.textContent = label
 
     dropdown.dataset.select = id
@@ -45,51 +44,80 @@
     Object.entries(colorPresets).forEach(([name,value]) => menu.appendChild(makeOption(name,value)))
     menu.appendChild(makeOption('Custom HEX','custom'))
 
+    // The editable HEX value occupies the dropdown trigger itself. It is not
+    // an extra field below the selector, so the control rows stay compact.
     const input = document.createElement('input')
-    input.className = 'input color-custom'
+    input.className = 'color-inline-input'
     input.id = `${id}Custom`
+    input.type = 'text'
     input.maxLength = 7
     input.spellcheck = false
     input.inputMode = 'text'
     input.placeholder = '#FFFFFF'
     input.setAttribute('aria-label',`${label} custom HEX`)
-    input.hidden = true
-    field.appendChild(input)
+    input.readOnly = true
+
+    const menuToggle = document.createElement('button')
+    menuToggle.className = 'color-menu-toggle'
+    menuToggle.type = 'button'
+    menuToggle.setAttribute('aria-label', `Choose ${label.toLowerCase()}`)
+    menuToggle.setAttribute('aria-haspopup', 'listbox')
+    menuToggle.setAttribute('aria-expanded', 'false')
+    menuToggle.innerHTML = '<span class="chevron" aria-hidden="true"></span>'
+
+    trigger.classList.add('color-trigger')
+    trigger.replaceChildren(input, menuToggle)
 
     const setValue = (value, focusCustom = false) => {
       const normalized = String(value || defaults[id]).trim().toUpperCase()
       const presetName = presetByValue.get(normalized)
       const selected = presetName ? colorPresets[presetName] : 'custom'
       dropdown.dataset.value = selected
-      triggerText.textContent = presetName ? `${presetName} — ${normalized}` : 'Custom HEX'
+      input.value = presetName ? `${presetName} — ${normalized}` : normalized
+      input.readOnly = selected !== 'custom'
       menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === selected))
-      input.value = validColor(normalized) ? normalized : defaults[id]
-      input.hidden = selected !== 'custom'
       if (focusCustom) input.focus()
     }
 
-    trigger.addEventListener('click',(event) => {
+    // A custom value may happen to equal a preset (for example #FFFFFF).
+    // Selecting "Custom HEX" must still reveal the input instead of routing
+    // back through setValue(), which correctly recognizes that preset.
+    const selectCustom = () => {
+      const currentValue = dropdown.dataset.value === 'custom' ? input.value : dropdown.dataset.value
+      dropdown.dataset.value = 'custom'
+      input.value = validColor(currentValue) ? currentValue.trim().toUpperCase() : defaults[id]
+      input.readOnly = false
+      menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === 'custom'))
+      requestAnimationFrame(() => input.focus())
+    }
+
+    const toggleMenu = (event) => {
       event.stopPropagation()
       document.querySelectorAll('.dropdown.open').forEach(other => {
         if (other !== dropdown) {
           other.classList.remove('open')
-          other.querySelector('.dropdown-trigger')?.setAttribute('aria-expanded','false')
+          other.querySelectorAll('[aria-haspopup="listbox"]').forEach(control => control.setAttribute('aria-expanded','false'))
         }
       })
       const open = dropdown.classList.toggle('open')
-      trigger.setAttribute('aria-expanded',String(open))
+      menuToggle.setAttribute('aria-expanded',String(open))
+    }
+
+    input.addEventListener('click', (event) => {
+      if (input.readOnly) toggleMenu(event)
+      else event.stopPropagation()
     })
+    menuToggle.addEventListener('click', toggleMenu)
 
     menu.querySelectorAll('.option').forEach(option => option.addEventListener('click',(event) => {
       event.stopPropagation()
       if (option.dataset.value === 'custom') {
-        setValue(input.value || defaults[id],true)
-        dropdown.dataset.value = 'custom'
+        selectCustom()
       } else {
         setValue(option.dataset.value)
       }
       dropdown.classList.remove('open')
-      trigger.setAttribute('aria-expanded','false')
+      menuToggle.setAttribute('aria-expanded','false')
       syncColorsToJson()
     }))
     input.addEventListener('input',syncColorsToJson)
@@ -127,22 +155,28 @@
   originalGrid?.parentElement?.insertBefore(colorRow1, originalGrid.nextSibling)
   originalGrid?.parentElement?.insertBefore(colorRow2, colorRow1.nextSibling)
 
+  // The original playground script rebuilds Advanced JSON when a base field
+  // changes. Re-apply colour fields afterwards so a valid custom HEX is not
+  // silently dropped before Generate is pressed.
+  ;['name','uid','text','avatar','showAvatar','bg','width','height','scale','replyName','replyText','hasReply'].forEach(id => {
+    $(id)?.addEventListener('input', () => setTimeout(syncColorsToJson, 0))
+    $(id)?.addEventListener('change', () => setTimeout(syncColorsToJson, 0))
+  })
+
   const syncFieldsFromJson = () => {
     try {
       const payload = JSON.parse($('json').value || '{}')
       for (const [id] of colors) {
         const dropdown = $(`${id}Dropdown`)
         const custom = $(`${id}Custom`)
-        const triggerText = dropdown?.querySelector('.dropdown-trigger span')
-        if (!dropdown || !custom || !triggerText) continue
+        if (!dropdown || !custom) continue
         const normalized = String(payload[id] || defaults[id]).trim().toUpperCase()
         const presetName = presetByValue.get(normalized)
         const selected = presetName ? colorPresets[presetName] : 'custom'
         dropdown.dataset.value = selected
-        triggerText.textContent = presetName ? `${presetName} — ${normalized}` : 'Custom HEX'
+        custom.value = presetName ? `${presetName} — ${normalized}` : normalized
+        custom.readOnly = selected !== 'custom'
         dropdown.querySelectorAll('.option').forEach(option => option.classList.toggle('active',option.dataset.value === selected))
-        custom.value = validColor(normalized) ? normalized : defaults[id]
-        custom.hidden = selected !== 'custom'
       }
     } catch (_) {}
   }
@@ -152,13 +186,12 @@
     for (const [id] of colors) {
       const dropdown = $(`${id}Dropdown`)
       const custom = $(`${id}Custom`)
-      const triggerText = dropdown?.querySelector('.dropdown-trigger span')
-      if (!dropdown || !custom || !triggerText) continue
-      dropdown.dataset.value = defaults[id]
-      triggerText.textContent = 'Custom HEX'
-      dropdown.querySelectorAll('.option').forEach(option => option.classList.remove('active'))
-      custom.value = defaults[id]
-      custom.hidden = true
+      if (!dropdown || !custom) continue
+      const presetName = presetByValue.get(defaults[id])
+      dropdown.dataset.value = presetName ? colorPresets[presetName] : 'custom'
+      custom.value = presetName ? `${presetName} — ${defaults[id]}` : defaults[id]
+      custom.readOnly = true
+      dropdown.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === dropdown.dataset.value))
     }
     syncColorsToJson()
   },0))
@@ -178,7 +211,13 @@
   style.textContent = `
     html { scrollbar-width:none; }
     html::-webkit-scrollbar,body::-webkit-scrollbar,textarea::-webkit-scrollbar,.code::-webkit-scrollbar { width:0!important;height:0!important;display:none!important; }
-    .color-custom { margin-top:8px; }
+    .color-trigger { padding:0 5px 0 12px; gap:5px; }
+    .color-inline-input { min-width:0; width:100%; height:100%; border:0; outline:0; background:transparent; color:inherit; font:inherit; font-weight:700; }
+    .color-inline-input[readonly] { cursor:pointer; }
+    .color-menu-toggle { flex:none; display:grid; place-items:center; width:30px; height:30px; border:0; border-radius:6px; background:transparent; color:inherit; cursor:pointer; }
+    .color-menu-toggle:hover { background:var(--surface-2); }
+    .color-menu-toggle .chevron { pointer-events:none; }
+    .dropdown.open .color-menu-toggle .chevron { transform:rotate(225deg) translate(-1px,-1px); }
   `
   document.head.appendChild(style)
 
