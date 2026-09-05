@@ -5,6 +5,7 @@ const assert = require('assert')
 const { loadImage, createCanvas } = require('canvas')
 const sharp = require('sharp')
 const generateMethod = require('./methods/generate')
+const generateApiMethod = require('./methods')
 const QuoteGenerate = require('./utils/quote-generate')
 const loadImageFromUrl = require('./utils/image-load-url')
 
@@ -112,10 +113,10 @@ async function main () {
     console.log(`  image/${label}: bubble ${bubble.toFixed(0)} vs wallpaper ${wall.toFixed(0)} (Δ${Math.abs(bubble - wall).toFixed(0)})`)
   }
 
-  // 4. Color customization must reach the actual canvas renderer. Exact
-  //    opaque pixels prove these values are used for the bubble, sender name,
-  //    and message text rather than only being accepted by the API/UI.
-  const colored = await generateMethod({
+  // 4. Color customization must reach the actual canvas renderer. Use the
+  //    public method dispatcher here so its normalization layer injects the
+  //    quoteColors object consumed by QuoteGenerate/composer.
+  const colored = await generateApiMethod('generate', {
     width: 512,
     height: 512,
     scale: 1,
@@ -136,9 +137,9 @@ async function main () {
 
   // 5. JSON/base64 and direct extension paths must contain the bytes they
   //    claim, not PNG bytes relabeled as WebP.
-  const jsonPng = await generateMethod({ messages: [msg(1, 'format png')], format: 'png' })
-  const jsonWebp = await generateMethod({ messages: [msg(1, 'format webp')], format: 'webp' })
-  const directWebp = await generateMethod({ messages: [msg(1, 'direct webp')], format: 'png', ext: 'webp' })
+  const jsonPng = await generateApiMethod('generate', { messages: [msg(1, 'format png')], format: 'png' })
+  const jsonWebp = await generateApiMethod('generate', { messages: [msg(1, 'format webp')], format: 'webp' })
+  const directWebp = await generateApiMethod('generate', { messages: [msg(1, 'direct webp')], format: 'png', ext: 'webp' })
   assert.ok(!jsonPng.error && !jsonWebp.error && !directWebp.error, 'format generation failed')
   await assertImageFormat(Buffer.from(jsonPng.image, 'base64'), 'png')
   await assertImageFormat(Buffer.from(jsonWebp.image, 'base64'), 'webp')
@@ -158,7 +159,7 @@ async function main () {
     { nameColor: '#12' },
     { textColor: '#12345G' }
   ]) {
-    const result = await generateMethod({ ...payload, messages: [msg(1, 'invalid input')] })
+    const result = await generateApiMethod('generate', { ...payload, messages: [msg(1, 'invalid input')] })
     assert.ok(result.error, `invalid payload was accepted: ${JSON.stringify(payload)}`)
   }
 
