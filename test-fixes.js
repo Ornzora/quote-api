@@ -1,10 +1,12 @@
-// Numeric assertions for the group-avatar and media-scale fixes.
+// Numeric and security regression assertions for quote rendering fixes.
 // Run: node test-fixes.js  → exits non-zero on any failed assertion.
 
 const assert = require('assert')
 const { loadImage, createCanvas } = require('canvas')
+const sharp = require('sharp')
 const generateMethod = require('./methods/generate')
 const QuoteGenerate = require('./utils/quote-generate')
+const loadImageFromUrl = require('./utils/image-load-url')
 
 // Count opaque pixels in the left avatar column (x < colW) of a PNG buffer.
 function leftColumnInk (img, colW) {
@@ -15,6 +17,33 @@ function leftColumnInk (img, colW) {
   let n = 0
   for (let i = 3; i < data.length; i += 4) if (data[i] > 32) n++
   return n
+}
+
+function exactColorPixels (img, hex) {
+  const value = hex.replace('#', '')
+  const target = [
+    parseInt(value.slice(0, 2), 16),
+    parseInt(value.slice(2, 4), 16),
+    parseInt(value.slice(4, 6), 16)
+  ]
+  const canvas = createCanvas(img.width, img.height)
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(img, 0, 0)
+  const data = ctx.getImageData(0, 0, img.width, img.height).data
+  let n = 0
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i] === target[0] && data[i + 1] === target[1] && data[i + 2] === target[2] && data[i + 3] > 200) n++
+  }
+  return n
+}
+
+async function assertImageFormat (buffer, expected) {
+  const metadata = await sharp(buffer).metadata()
+  assert.strictEqual(metadata.format, expected, `expected ${expected} bytes, got ${metadata.format || 'unknown'}`)
+}
+
+async function assertRejected (promise, pattern, message) {
+  await assert.rejects(promise, pattern, message)
 }
 
 async function main () {
@@ -42,9 +71,7 @@ async function main () {
     `grouped/ungrouped avatar ink ratio ${ratio.toFixed(2)} — expected ≈ 0.5 (one avatar of two)`)
 
   // 2. Voice renders as an in-bubble attachment row capped at ⅔ of the
-  //    target width. The bubble width is fully deterministic:
-  //    (avatar 50 + gap 10)·s + (rowW + 2·padX 16·s) + shadowPad 12·s,
-  //    where rowW comes from the same drawVoiceRow inputs.
+  //    target width. The bubble width is fully deterministic.
   const { drawVoiceRow } = require('./utils/quote-generate/attachments')
   const { NAME_COLORS_DARK } = require('./utils/quote-generate/constants')
   const waveform = Array.from({ length: 60 }, (_, i) => (i * 7) % 32)
@@ -54,7 +81,6 @@ async function main () {
     voice: { waveform, duration: 42 },
     avatar: false
   }, 512, 512, scale, 'apple')
-  // from.id=1 → NAME_COLORS_DARK[1]; dark background → textColor #fff
   const row = drawVoiceRow(waveform, 42, NAME_COLORS_DARK[1], '#fff', scale, 512 * scale * 2 / 3)
   assert.ok(row.width <= Math.ceil(512 * scale * 2 / 3), `voice row ${row.width} exceeds ⅔ cap`)
   const expectedW = (50 + 10) * scale + (row.width + 2 * 16 * scale) + 12 * scale
@@ -62,8 +88,6 @@ async function main () {
     `voice bubble width ${voice.width} != expected ${expectedW}`)
 
   // 3. Image mode: the wallpaper must contrast with the bubble, not blend.
-  //    Sample the wallpaper corner vs the bubble interior; perceived
-  //    brightness (BT.601) must differ noticeably for dark AND light themes.
   const brightness = (p) => (p.r * 299 + p.g * 587 + p.b * 114) / 1000
   for (const [bgColor, label] of [['#252e44', 'dark'], ['#e8ecf3', 'light']]) {
     const img = await generateMethod({ messages: [msg(7, 'контраст фону')], scale, type: 'image', backgroundColor: bgColor })
@@ -76,14 +100,11 @@ async function main () {
       const d = cx.getImageData(x, y, 1, 1).data
       return { r: d[0], g: d[1], b: d[2] }
     }
-    // Wallpaper near the corner; bubble interior right of the avatar column
-    // ((50+10+16)·s + margin, vertical center).
     const wallPx = get(8, 8)
     const wall = brightness(wallPx)
     const bubble = brightness(get(95 * scale / 2 + (50 + 10 + 20) * scale, Math.round(pic.height / 2)))
     assert.ok(Math.abs(bubble - wall) >= 18,
       `${label}: bubble (${bubble.toFixed(0)}) blends into wallpaper (${wall.toFixed(0)})`)
-    // Light wallpapers must be pastel, not gray: require visible chroma.
     if (label === 'light') {
       const chroma = Math.max(wallPx.r, wallPx.g, wallPx.b) - Math.min(wallPx.r, wallPx.g, wallPx.b)
       assert.ok(chroma >= 15, `light wallpaper is gray (chroma ${chroma}) — expected a pastel tint`)
@@ -91,9 +112,81 @@ async function main () {
     console.log(`  image/${label}: bubble ${bubble.toFixed(0)} vs wallpaper ${wall.toFixed(0)} (Δ${Math.abs(bubble - wall).toFixed(0)})`)
   }
 
+  // 4. Color customization must reach the actual canvas renderer. Exact
+  //    opaque pixels prove these values are used for the bubble, sender name,
+  //    and message text rather than only being accepted by the API/UI.
+  const colored = await generateMethod({
+    width: 512,
+    height: 512,
+    scale: 1,
+    bubbleColor: '#FF0000',
+    nameColor: '#00FF00',
+    textColor: '#0000FF',
+    messages: [{
+      from: { id: 1, name: 'Alice', photo: {} },
+      text: 'Hello world',
+      avatar: false
+    }]
+  })
+  assert.ok(!colored.error, `color customization failed: ${colored.error || 'unknown error'}`)
+  const coloredImage = await loadImage(Buffer.from(colored.image, 'base64'))
+  assert.ok(exactColorPixels(coloredImage, '#FF0000') > 500, 'custom bubbleColor was not rendered')
+  assert.ok(exactColorPixels(coloredImage, '#00FF00') > 5, 'custom nameColor was not rendered')
+  assert.ok(exactColorPixels(coloredImage, '#0000FF') > 5, 'custom textColor was not rendered')
+
+  // 5. JSON/base64 and direct extension paths must contain the bytes they
+  //    claim, not PNG bytes relabeled as WebP.
+  const jsonPng = await generateMethod({ messages: [msg(1, 'format png')], format: 'png' })
+  const jsonWebp = await generateMethod({ messages: [msg(1, 'format webp')], format: 'webp' })
+  const directWebp = await generateMethod({ messages: [msg(1, 'direct webp')], format: 'png', ext: 'webp' })
+  assert.ok(!jsonPng.error && !jsonWebp.error && !directWebp.error, 'format generation failed')
+  await assertImageFormat(Buffer.from(jsonPng.image, 'base64'), 'png')
+  await assertImageFormat(Buffer.from(jsonWebp.image, 'base64'), 'webp')
+  await assertImageFormat(directWebp.image, 'webp')
+
+  // 6. Public validation must reject NaN/infinite/oversized dimensions,
+  //    unsafe scale values, invalid formats, and malformed HEX colors.
+  for (const payload of [
+    { width: NaN },
+    { width: Infinity },
+    { height: 0 },
+    { height: 2049 },
+    { scale: NaN },
+    { scale: 5 },
+    { format: 'gif' },
+    { bubbleColor: 'red' },
+    { nameColor: '#12' },
+    { textColor: '#12345G' }
+  ]) {
+    const result = await generateMethod({ ...payload, messages: [msg(1, 'invalid input')] })
+    assert.ok(result.error, `invalid payload was accepted: ${JSON.stringify(payload)}`)
+  }
+
+  // 7. Remote image loading must reject local/private destinations before any
+  //    network request. Redirects are revalidated by doRequest().
+  await assertRejected(
+    loadImageFromUrl('http://127.0.0.1/image.png'),
+    /Blocked private or internal image host/,
+    'loopback image URL was not blocked'
+  )
+  await assertRejected(
+    loadImageFromUrl('http://169.254.169.254/latest/meta-data/'),
+    /Blocked private or internal image host/,
+    'link-local metadata URL was not blocked'
+  )
+  await assertRejected(
+    loadImageFromUrl('http://user:pass@example.com/image.png'),
+    /Credentials in image URL are not allowed/,
+    'credential-bearing image URL was not blocked'
+  )
+
   console.log('OK: fixes assertions passed')
   console.log(`  avatar ink ratio grouped/ungrouped = ${ratio.toFixed(3)} (≈0.5)`)
   console.log(`  voice bubble width = ${voice.width} (expected ${expectedW}, row ${row.width})`)
+  console.log('  customization colors rendered: bubble/name/text')
+  console.log('  PNG/WebP byte formats verified')
+  console.log('  invalid dimensions/colors/formats rejected')
+  console.log('  private image hosts and URL credentials blocked')
 }
 
 main().catch((err) => {
