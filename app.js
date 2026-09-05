@@ -40,14 +40,20 @@ const fontsDir = path.join(__dirname, 'assets', 'fonts')
 route.get('/', (ctx) => {
   ctx.status = 200
   ctx.type = 'text/html'
+  // Always serve the current UI source; this is a small dynamic playground page.
+  ctx.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+  ctx.set('Pragma', 'no-cache')
+  ctx.set('Expires', '0')
   ctx.body = ui
 })
 
 route.get('/customization.js', (ctx) => {
   ctx.status = 200
   ctx.type = 'application/javascript'
-  // UI customization changes frequently; don't let browsers pin an old script for an hour.
-  ctx.set('Cache-Control', 'no-cache, must-revalidate')
+  // Always fetch the current customization script; don't let browsers/CDNs pin an old version.
+  ctx.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+  ctx.set('Pragma', 'no-cache')
+  ctx.set('Expires', '0')
   ctx.body = fs.createReadStream(path.join(__dirname, 'web', 'customization.js'))
 })
 
