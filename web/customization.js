@@ -71,21 +71,26 @@
 
   const presetEntries = Object.entries(colorPresets)
   const presetByValue = new Map(presetEntries.map(([name, value]) => [value.toUpperCase(), name]))
+  const bgField = bg.closest('.field')
 
-  const wrap = document.createElement('div')
-  wrap.className = 'grid2 quote-colors'
-  wrap.innerHTML = colors.map(([id, label]) => `
-    <div class="field color-field">
+  const createColorField = ([id, label]) => {
+    const field = document.createElement('div')
+    field.className = 'field color-field'
+    field.innerHTML = `
       <label class="label" for="${id}Preset">${label}</label>
-      <select class="select" id="${id}Preset">
+      <select class="input" id="${id}Preset" aria-label="${label} preset">
         ${presetEntries.map(([name, value]) => `<option value="${value}">${name} — ${value.toUpperCase()}</option>`).join('')}
         <option value="custom">Custom HEX</option>
       </select>
       <input class="input color-custom" id="${id}" value="${defaults[id]}" maxlength="7" spellcheck="false" inputmode="text" placeholder="#FFFFFF" aria-label="${label} custom HEX" hidden>
-    </div>
-  `).join('')
+    `
+    return field
+  }
 
-  bg.closest('.field').insertAdjacentElement('afterend', wrap)
+  // Keep color controls as direct children of the existing two-column form grid.
+  // This prevents the nested grid from creating an empty third column.
+  const colorFields = colors.map(createColorField)
+  bgField?.after(...colorFields)
 
   const validColor = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(value.trim())
 
