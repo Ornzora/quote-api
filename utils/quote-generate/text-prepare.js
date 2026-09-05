@@ -1,10 +1,6 @@
 // utils/quote-generate/text-prepare.js
 // Prepare phase: tokenize text, load emoji, measure segments.
-// Called once per text block. Returns PreparedText for layout/render phases.
-//
-// NOTE: text.split('') and entity offsets both use UTF-16 code units,
-// consistent with Telegram API and JS string indexing. Do not refactor
-// to Array.from(text) (codepoint split) without updating all offset logic.
+// Keeps the rendering pipeline compatible with the upstream quote renderer.
 
 const { createCanvas, loadImage } = require('canvas')
 const sharp = require('sharp')
@@ -17,11 +13,9 @@ const {
   EMOJI_SCALE, LEFT_STICKY_PUNCTUATION, KINSOKU_START, KINSOKU_END
 } = require('./constants')
 
-// Shared segmenters (singletons, like pretext)
 const wordSegmenter = new Intl.Segmenter('en', { granularity: 'word' })
 const graphemeSegmenter = new Intl.Segmenter('en', { granularity: 'grapheme' })
 
-// Shared measurement canvas (singleton, like pretext)
 let measureCanvas = null
 let measureCtx = null
 
@@ -33,18 +27,14 @@ function getMeasureCtx () {
   return measureCtx
 }
 
-// Module-level emoji image cache — persists across calls
 const emojiImageCache = new Map()
+const emojiLoadingPromises = new Map()
 
-// Keep font metrics deterministic while using fonts that are available in
-// Vercel/Linux canvas builds. The old NotoSans family was referenced by the
-// renderer but was not bundled in assets/fonts, which caused missing-glyph
-// boxes on serverless deployments.
+// Use portable families on Vercel/Linux. Custom font assets are optional;
+// canvas/Pango will resolve these families to an installed system font.
 const BASE_FONT = 'sans-serif'
 const MONO_FONT = 'monospace'
 
-// Vertical metrics of the base font at a given size — a constant of the
-// font, so glyph shapes never affect line geometry (no "breathing" bubbles).
 const PROBE_TALL = 'ẤÅЇĎ'
 const PROBE_DEEP = 'jqyḑộ'
 const fontMetricsCache = new Map()
@@ -52,6 +42,7 @@ const fontMetricsCache = new Map()
 function fontMetrics (fontSize) {
   let m = fontMetricsCache.get(fontSize)
   if (m) return m
+
   const ctx = getMeasureCtx()
   ctx.font = `${fontSize}px ${BASE_FONT}`
   const em = ctx.measureText('Mg')
@@ -59,6 +50,7 @@ function fontMetrics (fontSize) {
   const deep = ctx.measureText(PROBE_DEEP)
   const emAscent = Number.isFinite(em.emHeightAscent) ? em.emHeightAscent : fontSize * 1.05
   const emDescent = Number.isFinite(em.emHeightDescent) ? em.emHeightDescent : fontSize * 0.3
+
   m = {
     ascent: Math.ceil(Math.max(emAscent, tall.actualBoundingBoxAscent || 0, fontSize * 0.85)),
     descent: Math.ceil(Math.max(emDescent, deep.actualBoundingBoxDescent || 0, fontSize * 0.3))
@@ -67,31 +59,23 @@ function fontMetrics (fontSize) {
   return m
 }
 
-// Resolve the font string for a set of styles. Use generic CSS families so
-// node-canvas can resolve a real system font even when custom assets are not
-// present in a serverless deployment.
 function resolveFont (styles, fontSize) {
   let fontType = ''
   let fontName = BASE_FONT
-
   if (styles.includes('bold')) fontType += 'bold '
   if (styles.includes('italic')) fontType += 'italic '
   if (styles.includes('monospace')) fontName = MONO_FONT
-
   return `${fontType}${fontSize}px ${fontName}`
 }
 
-// Parse entities into per-character style/emoji data
 function buildStyledChars (text, entities) {
   const chars = text.split('')
   const styledChars = chars.map(char => ({ char, styles: [] }))
 
-  // Apply string-type entities (e.g. 'bold' passed as string)
   if (entities && typeof entities === 'string') {
     for (const sc of styledChars) sc.styles.push(entities)
   }
 
-  // Apply entity array
   if (Array.isArray(entities)) {
     for (const entity of entities) {
       const style = ENTITY_TYPES_MONOSPACE.includes(entity.type)
@@ -100,7 +84,7 @@ function buildStyledChars (text, entities) {
           ? 'mention'
           : entity.type
 
-      if (entity.type === 'custom_emoji') {
+      if (entity.type === 'custom_emoji' && styledChars[entity.offset]) {
         styledChars[entity.offset].customEmojiId = entity.custom_emoji_id
       }
 
@@ -113,29 +97,21 @@ function buildStyledChars (text, entities) {
   return styledChars
 }
 
-// Detect and map emoji positions onto styled chars
 function mapEmojis (text, styledChars) {
   const emojis = emojiDb.searchFromText({ input: text, fixCodePoints: true })
   for (let eIdx = 0; eIdx < emojis.length; eIdx++) {
     const emoji = emojis[eIdx]
     for (let i = emoji.offset; i < emoji.offset + emoji.length; i++) {
-      if (styledChars[i]) {
-        styledChars[i].emoji = { index: eIdx, code: emoji.found }
-      }
+      if (styledChars[i]) styledChars[i].emoji = { index: eIdx, code: emoji.found }
     }
   }
   return emojis
 }
 
-// Load emoji images (with module-level cache + in-flight dedup)
-const emojiLoadingPromises = new Map()
-
 async function loadEmojiImages (emojis, emojiBrand) {
   const emojiImageJson = loadBrand(emojiBrand || 'apple')
-  let fallbackBrand = 'apple'
-  if (emojiBrand === 'blob') fallbackBrand = 'google'
+  const fallbackBrand = emojiBrand === 'blob' ? 'google' : 'apple'
   const fallbackJson = loadBrand(fallbackBrand)
-
   const localMap = new Map()
   const promises = []
 
@@ -144,41 +120,45 @@ async function loadEmojiImages (emojis, emojiBrand) {
 
     if (emojiImageCache.has(cacheKey)) {
       localMap.set(emoji.found, emojiImageCache.get(cacheKey))
-    } else if (emojiLoadingPromises.has(cacheKey)) {
+      continue
+    }
+
+    if (emojiLoadingPromises.has(cacheKey)) {
       promises.push(emojiLoadingPromises.get(cacheKey).then(img => {
         if (img) localMap.set(emoji.found, img)
       }))
-    } else if (!localMap.has(emoji.found)) {
-      const p = (async () => {
-        const base = emojiImageJson[emoji.found]
-        let image = null
-
-        if (base) {
-          try {
-            image = await loadImage(Buffer.from(base, 'base64'))
-          } catch (e) {
-            try { image = await loadImage(Buffer.from(fallbackJson[emoji.found], 'base64')) } catch (e2) { /* skip */ }
-          }
-        } else {
-          try { image = await loadImage(Buffer.from(fallbackJson[emoji.found], 'base64')) } catch (e) { /* skip */ }
-        }
-
-        if (image) {
-          emojiImageCache.set(cacheKey, image)
-          localMap.set(emoji.found, image)
-        }
-        return image
-      })()
-      emojiLoadingPromises.set(cacheKey, p)
-      promises.push(p.finally(() => emojiLoadingPromises.delete(cacheKey)))
+      continue
     }
+
+    const p = (async () => {
+      let image = null
+      const base = emojiImageJson[emoji.found]
+
+      if (base) {
+        try {
+          image = await loadImage(Buffer.from(base, 'base64'))
+        } catch (_) {
+          try { image = await loadImage(Buffer.from(fallbackJson[emoji.found], 'base64')) } catch (_) {}
+        }
+      } else {
+        try { image = await loadImage(Buffer.from(fallbackJson[emoji.found], 'base64')) } catch (_) {}
+      }
+
+      if (image) {
+        emojiImageCache.set(cacheKey, image)
+        localMap.set(emoji.found, image)
+      }
+      return image
+    })()
+
+    emojiLoadingPromises.set(cacheKey, p)
+    promises.push(p.finally(() => emojiLoadingPromises.delete(cacheKey)))
   }
 
   await Promise.all(promises)
   return localMap
 }
 
-// Load custom emoji stickers via Telegram API
 async function loadCustomEmojis (customEmojiIds, telegram) {
   const result = {}
   if (customEmojiIds.length === 0 || !telegram) return result
@@ -186,7 +166,6 @@ async function loadCustomEmojis (customEmojiIds, telegram) {
   const stickers = await telegram.callApi('getCustomEmojiStickers', {
     custom_emoji_ids: customEmojiIds
   }).catch(() => null)
-
   if (!stickers) return result
 
   const promises = stickers.map(async sticker => {
@@ -203,102 +182,265 @@ async function loadCustomEmojis (customEmojiIds, telegram) {
   return result
 }
 
-// Tokenize styled chars into raw segments using Intl.Segmenter
 function tokenize (text, styledChars, fontSize, emojiMap, customEmojiMap) {
   const segments = []
   const emojiSize = fontSize * EMOJI_SCALE
-
-  // Use Intl.Segmenter for word boundaries
   const wordSegs = [...wordSegmenter.segment(text)]
 
   for (const wordSeg of wordSegs) {
     const start = wordSeg.index
     const end = start + wordSeg.segment.length
-
-    // Further split each word segment by: style boundaries, emoji boundaries, explicit breaks
     let subStart = start
+
     for (let i = start; i < end; i++) {
       const cur = styledChars[i]
       const prev = i > subStart ? styledChars[i - 1] : null
-
-      // Break chars always split unconditionally (even at segment start)
       const isBreak = cur.char.match(BREAK_REGEX)
-
       const needsSplit = isBreak || (prev && (
-        // Emoji boundary
         (cur.emoji && !prev.emoji) ||
         (!cur.emoji && prev.emoji) ||
         (cur.emoji && prev.emoji && cur.emoji.index !== prev.emoji.index) ||
-        // Style change
         (cur.styles.toString() !== prev.styles.toString())
       ))
 
       if (needsSplit) {
-        if (i > subStart) {
-          pushSegment(segments, styledChars, subStart, i, fontSize, emojiSize, emojiMap, customEmojiMap)
-        }
+        if (i > subStart) pushSegment(segments, styledChars, subStart, i, fontSize, emojiSize, emojiMap, customEmojiMap)
         subStart = i
       }
     }
 
-    if (subStart < end) {
-      pushSegment(segments, styledChars, subStart, end, fontSize, emojiSize, emojiMap, customEmojiMap)
-    }
+    if (subStart < end) pushSegment(segments, styledChars, subStart, end, fontSize, emojiSize, emojiMap, customEmojiMap)
   }
 
-  return { segments, emojiSize }
+  return segments
 }
 
 function pushSegment (segments, styledChars, start, end, fontSize, emojiSize, emojiMap, customEmojiMap) {
-  const chars = styledChars.slice(start, end)
-  const text = chars.map(c => c.char).join('')
-  const first = chars[0]
-  const styles = first ? [...first.styles] : []
-  const emoji = first && first.emoji
-  const customEmojiId = first && first.customEmojiId
+  const first = styledChars[start]
+  let text = ''
+  for (let i = start; i < end; i++) text += styledChars[i].char
 
-  if (emoji && emojiMap) {
-    const image = emojiMap.get(emoji.code)
-    if (image) {
-      segments.push({ kind: 'emoji', text, styles, fontSize, emojiSize, emojiImage: image, start, end })
-      return
+  let kind = 'text'
+  if (text.match(BREAK_REGEX)) kind = 'break'
+  else if (text.match(SPACE_REGEX) && !text.match(/\S/)) kind = 'space'
+  else if (first.emoji) kind = 'emoji'
+
+  let emojiImage = null
+  const emojiCode = first.emoji ? first.emoji.code : null
+  const customEmojiId = first.customEmojiId || null
+
+  if (first.emoji) {
+    if (customEmojiId && customEmojiMap[customEmojiId]) emojiImage = customEmojiMap[customEmojiId]
+    else emojiImage = emojiMap.get(first.emoji.code) || null
+    kind = 'emoji'
+  }
+
+  segments.push({
+    text,
+    kind,
+    styles: [...first.styles],
+    font: resolveFont(first.styles, fontSize),
+    emojiImage,
+    emojiCode,
+    customEmojiId,
+    width: 0
+  })
+}
+
+function splitCJKSegments (segments) {
+  const result = []
+
+  for (const seg of segments) {
+    if (seg.kind !== 'text' || !seg.text.match(CJK_REGEX)) {
+      result.push(seg)
+      continue
+    }
+
+    const graphemes = [...graphemeSegmenter.segment(seg.text)]
+    if (graphemes.length <= 1) {
+      result.push(seg)
+      continue
+    }
+
+    let runStart = 0
+    let runIsCJK = !!graphemes[0].segment.match(CJK_REGEX)
+
+    for (let g = 1; g <= graphemes.length; g++) {
+      const curIsCJK = g < graphemes.length
+        ? !!graphemes[g].segment.match(CJK_REGEX)
+        : !runIsCJK
+
+      if (curIsCJK !== runIsCJK || g === graphemes.length) {
+        if (runIsCJK) {
+          for (let j = runStart; j < g; j++) {
+            result.push({
+              text: graphemes[j].segment,
+              kind: 'text',
+              styles: [...seg.styles],
+              font: seg.font,
+              emojiImage: null,
+              emojiCode: null,
+              customEmojiId: null,
+              width: 0
+            })
+          }
+        } else {
+          let runText = ''
+          for (let j = runStart; j < g; j++) runText += graphemes[j].segment
+          result.push({
+            text: runText,
+            kind: 'text',
+            styles: [...seg.styles],
+            font: seg.font,
+            emojiImage: null,
+            emojiCode: null,
+            customEmojiId: null,
+            width: 0
+          })
+        }
+        runStart = g
+        runIsCJK = curIsCJK
+      }
     }
   }
 
-  segments.push({ kind: 'text', text, styles, fontSize, start, end, customEmojiId, emoji })
+  return result
+}
+
+function mergePunctuation (segments) {
+  const result = []
+
+  for (const seg of segments) {
+    if (seg.kind === 'text' && seg.text.length === 1 && LEFT_STICKY_PUNCTUATION.has(seg.text) && result.length > 0) {
+      const prev = result[result.length - 1]
+      if (prev.kind === 'text' && prev.styles.toString() === seg.styles.toString()) {
+        prev.text += seg.text
+        prev.width = 0
+        prev._graphemeWidths = null
+        continue
+      }
+    }
+    result.push(seg)
+  }
+
+  return result
+}
+
+function applyKinsoku (segments) {
+  const result = []
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]
+
+    if (seg.kind === 'text' && seg.text.length === 1 && KINSOKU_START.has(seg.text) && result.length > 0) {
+      const prev = result[result.length - 1]
+      if (prev.kind === 'text' && prev.styles.toString() === seg.styles.toString()) {
+        prev.text += seg.text
+        prev.width = 0
+        prev._graphemeWidths = null
+        continue
+      }
+    }
+
+    if (seg.kind === 'text' && seg.text.length === 1 && KINSOKU_END.has(seg.text) && i + 1 < segments.length) {
+      const next = segments[i + 1]
+      if (next.kind === 'text' && seg.styles.toString() === next.styles.toString()) {
+        segments[i + 1] = {
+          text: seg.text + next.text,
+          kind: next.kind,
+          styles: [...next.styles],
+          font: next.font,
+          emojiImage: next.emojiImage,
+          emojiCode: next.emojiCode,
+          customEmojiId: next.customEmojiId,
+          width: 0,
+          _graphemeWidths: null
+        }
+        continue
+      }
+    }
+
+    result.push(seg)
+  }
+
+  return result
+}
+
+function measureSegments (segments) {
+  const ctx = getMeasureCtx()
+  const emojiSize = segments.length > 0 && segments[0].fontSize
+    ? segments[0].fontSize * EMOJI_SCALE
+    : null
+  let currentFont = null
+
+  for (const seg of segments) {
+    if (seg.kind === 'emoji') {
+      seg.width = emojiSize || 0
+      continue
+    }
+    if (seg.kind === 'break') {
+      seg.width = 0
+      continue
+    }
+
+    if (currentFont !== seg.font) {
+      ctx.font = seg.font
+      currentFont = seg.font
+    }
+    seg.width = ctx.measureText(seg.text).width
+  }
+}
+
+function computeGraphemeWidths (segment) {
+  if (segment._graphemeWidths) return segment._graphemeWidths
+
+  const ctx = getMeasureCtx()
+  ctx.font = segment.font
+  const graphemes = [...graphemeSegmenter.segment(segment.text)]
+  const widths = graphemes.map(g => ctx.measureText(g.segment).width)
+  const texts = graphemes.map(g => g.segment)
+  segment._graphemeWidths = { widths, texts }
+  return segment._graphemeWidths
 }
 
 async function prepareText (text, entities, fontSize, emojiBrand, telegram) {
+  if (!text) {
+    return {
+      segments: [],
+      fontSize,
+      lineHeight: fontSize * 1.2,
+      emojiSize: fontSize * EMOJI_SCALE,
+      ...fontMetrics(fontSize),
+      computeGraphemeWidths
+    }
+  }
+
+  text = String(text).replace(/і/g, 'i')
+
   const styledChars = buildStyledChars(text, entities)
   const emojis = mapEmojis(text, styledChars)
+  const emojiMap = await loadEmojiImages(emojis, emojiBrand)
+
   const customEmojiIds = []
-
-  for (const c of styledChars) {
-    if (c.customEmojiId && !customEmojiIds.includes(c.customEmojiId)) customEmojiIds.push(c.customEmojiId)
+  for (const sc of styledChars) {
+    if (sc.customEmojiId && !customEmojiIds.includes(sc.customEmojiId)) customEmojiIds.push(sc.customEmojiId)
   }
+  const customEmojiMap = await loadCustomEmojis(customEmojiIds, telegram)
 
-  const [emojiMap, customEmojiMap] = await Promise.all([
-    loadEmojiImages(emojis, emojiBrand),
-    loadCustomEmojis(customEmojiIds, telegram)
-  ])
+  let segments = tokenize(text, styledChars, fontSize, emojiMap, customEmojiMap)
+  segments = splitCJKSegments(segments)
+  segments = mergePunctuation(segments)
+  segments = applyKinsoku(segments)
+  measureSegments(segments)
 
-  const { segments, emojiSize } = tokenize(text, styledChars, fontSize, emojiMap, customEmojiMap)
-  const computeGraphemeWidths = (seg) => {
-    if (!seg || seg.kind !== 'text') return null
-    const ctx = getMeasureCtx()
-    ctx.font = seg.font || `${fontSize}px ${BASE_FONT}`
-    const texts = [...graphemeSegmenter.segment(seg.text)].map(x => x.segment)
-    const widths = texts.map(t => ctx.measureText(t).width)
-    return { texts, widths }
+  return {
+    segments,
+    fontSize,
+    lineHeight: fontSize * 1.2,
+    emojiSize: fontSize * EMOJI_SCALE,
+    ...fontMetrics(fontSize),
+    computeGraphemeWidths
   }
-
-  // Assign resolved fonts after tokenization so measurement and rendering use
-  // exactly the same portable family.
-  for (const seg of segments) {
-    seg.font = resolveFont(seg.styles, fontSize)
-  }
-
-  return { segments, fontSize, emojiSize, computeGraphemeWidths }
 }
 
 module.exports = {
