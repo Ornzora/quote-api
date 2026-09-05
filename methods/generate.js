@@ -6,6 +6,8 @@ const { parseBackgroundColor, colorLuminance, lightOrDark, hexToHsl, hslToHex } 
 const { brands: emojiBrands } = require('../utils/emoji-image')
 
 const ALLOWED_EMOJI_BRANDS = new Set(Object.keys(emojiBrands))
+const MAX_DIMENSION = 2048
+const MAX_SCALE = 4
 
 let cachedPatternImage = null
 async function getPatternImage () {
@@ -99,8 +101,17 @@ module.exports = async (parm) => {
 
   const botToken = parm.botToken || process.env.BOT_TOKEN
   const quoteGenerate = new QuoteGenerate(botToken)
-  const rawScale = parseFloat(parm.scale) || 2
-  const scale = Math.min(20, Math.max(1, Number.isFinite(rawScale) ? rawScale : 2))
+
+  const scale = parm.scale != null && parm.scale !== '' ? Number(parm.scale) : 2
+  const width = parm.width != null && parm.width !== '' ? Number(parm.width) : 512
+  const height = parm.height != null && parm.height !== '' ? Number(parm.height) : 512
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height > MAX_DIMENSION || height < 1 || width > MAX_DIMENSION) {
+    return { error: `width and height must be finite numbers between 1 and ${MAX_DIMENSION}` }
+  }
+  if (!Number.isFinite(scale) || scale < 1 || scale > MAX_SCALE) {
+    return { error: `scale must be a finite number between 1 and ${MAX_SCALE}` }
+  }
+
   const rawBrand = parm.emojiBrand || 'apple'
   const emojiBrand = ALLOWED_EMOJI_BRANDS.has(rawBrand) ? rawBrand : 'apple'
 
@@ -133,8 +144,8 @@ module.exports = async (parm) => {
           background.colorOne,
           background.colorTwo,
           validMessages[index],
-          parm.width,
-          parm.height,
+          width,
+          height,
           scale,
           emojiBrand
         ).then((canvas) => {
@@ -311,19 +322,19 @@ module.exports = async (parm) => {
     quoteImage = await sharp(quoteImage).png({ lossless: true, force: true }).toBuffer()
   }
 
-  let width, height
+  let outputWidth, outputHeight
   if (type === 'quote' || type === 'image' || type === 'stories') {
     const imageMetadata = await sharp(quoteImage).metadata()
-    width = imageMetadata.width
-    height = imageMetadata.height
+    outputWidth = imageMetadata.width
+    outputHeight = imageMetadata.height
   } else {
-    width = canvasQuote.width
-    height = canvasQuote.height
+    outputWidth = canvasQuote.width
+    outputHeight = canvasQuote.height
   }
 
   let image
   if (ext) image = quoteImage
   else image = quoteImage.toString('base64')
 
-  return { image, type, width, height, ext }
+  return { image, type, width: outputWidth, height: outputHeight, ext }
 }
