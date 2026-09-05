@@ -1,5 +1,5 @@
 # Build stage - compile native modules
-FROM node:22-bookworm AS builder
+FROM node:24-bookworm AS builder
 
 WORKDIR /app
 
@@ -26,7 +26,7 @@ COPY package*.json ./
 RUN npm install --omit=dev --no-audit --no-fund
 
 # Production stage
-FROM node:22-bookworm-slim
+FROM node:24-bookworm-slim
 
 WORKDIR /app
 
