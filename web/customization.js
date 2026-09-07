@@ -13,24 +13,24 @@
   }
   const colors = [['bubbleColor','Bubble color'],['nameColor','Name color'],['textColor','Text color']]
   const presetByValue = new Map(Object.entries(colorPresets).map(([name,value]) => [value.toUpperCase(),name]))
-  const validColor = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(value).trim())
+  const validColor = (v) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(v).trim())
 
   const makeOption = (name, value) => {
-    const option = document.createElement('button')
-    option.type = 'button'
-    option.className = 'option'
-    option.dataset.value = value
-    option.setAttribute('role','option')
-    option.textContent = `${name} — ${value.toUpperCase()}`
-    return option
+    const o = document.createElement('button')
+    o.type = 'button'
+    o.className = 'option'
+    o.dataset.value = value
+    o.setAttribute('role','option')
+    o.textContent = `${name} — ${value.toUpperCase()}`
+    return o
   }
 
-  const createColorField = ([id,label]) => {
+  const createColorField = ([id, label]) => {
     const field = $(`${id}Field`)
     if (!field) return null
     const dropdown = field.querySelector('.dropdown')
+    // FIX 1: was `let trigger` then immediately `const trigger` (duplicate declaration → SyntaxError)
     let trigger = dropdown?.querySelector('.dropdown-trigger')
-    const trigger = dropdown?.querySelector('.dropdown-trigger')
     const menu = dropdown?.querySelector('.menu')
     const labelEl = field.querySelector('.label')
     if (!dropdown || !trigger || !menu) return null
@@ -39,11 +39,9 @@
     dropdown.dataset.select = id
     dropdown.id = `${id}Dropdown`
     menu.innerHTML = ''
-    Object.entries(colorPresets).forEach(([name,value]) => menu.appendChild(makeOption(name,value)))
-    menu.appendChild(makeOption('Custom HEX','custom'))
+    Object.entries(colorPresets).forEach(([n, v]) => menu.appendChild(makeOption(n, v)))
+    menu.appendChild(makeOption('Custom HEX', 'custom'))
 
-    // The editable HEX value occupies the dropdown trigger itself. It is not
-    // an extra field below the selector, so the control rows stay compact.
     const input = document.createElement('input')
     input.className = 'color-inline-input'
     input.id = `${id}Custom`
@@ -52,7 +50,7 @@
     input.spellcheck = false
     input.inputMode = 'text'
     input.placeholder = '#FFFFFF'
-    input.setAttribute('aria-label',`${label} custom HEX`)
+    input.setAttribute('aria-label', `${label} custom HEX`)
     input.readOnly = true
 
     const menuToggle = document.createElement('button')
@@ -63,79 +61,78 @@
     menuToggle.setAttribute('aria-expanded', 'false')
     menuToggle.innerHTML = '<span class="chevron" aria-hidden="true"></span>'
 
-    // The source trigger is a <button>. Replace it with a neutral container
-    // before adding the editable input and preset-menu button; nested buttons
-    // are invalid HTML and can cause browsers to drop the colour control.
+    // Replace the original <button> trigger with a <div> container
     const colorTrigger = document.createElement('div')
     colorTrigger.className = `${trigger.className} color-trigger`
     trigger.replaceWith(colorTrigger)
-    trigger = colorTrigger
-    trigger.classList.add('color-trigger')
+    trigger = colorTrigger  // reassign — valid because trigger is `let` (FIX 1)
     trigger.replaceChildren(input, menuToggle)
 
-    const setValue = (value, focusCustom = false) => {
-      const normalized = String(value || defaults[id]).trim().toUpperCase()
-      const presetName = presetByValue.get(normalized)
+    const setValue = (value) => {
+      const norm = String(value || defaults[id]).trim().toUpperCase()
+      const presetName = presetByValue.get(norm)
       const selected = presetName ? colorPresets[presetName] : 'custom'
       dropdown.dataset.value = selected
-      input.value = presetName ? `${presetName} — ${normalized}` : normalized
+      input.value = presetName ? `${presetName} — ${norm}` : norm
       input.readOnly = selected !== 'custom'
-      menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === selected))
-      if (focusCustom) input.focus()
+      menu.querySelectorAll('.option').forEach(o => o.classList.toggle('active', o.dataset.value === selected))
     }
 
-    // A custom value may happen to equal a preset (for example #FFFFFF).
-    // Selecting "Custom HEX" must still reveal the input instead of routing
-    // back through setValue(), which correctly recognizes that preset.
     const selectCustom = () => {
-      const currentValue = dropdown.dataset.value === 'custom' ? input.value : dropdown.dataset.value
+      const cur = dropdown.dataset.value === 'custom' ? input.value : dropdown.dataset.value
       dropdown.dataset.value = 'custom'
-      input.value = validColor(currentValue) ? currentValue.trim().toUpperCase() : defaults[id]
+      input.value = validColor(cur) ? cur.trim().toUpperCase() : defaults[id]
       input.readOnly = false
-      menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === 'custom'))
+      menu.querySelectorAll('.option').forEach(o => o.classList.toggle('active', o.dataset.value === 'custom'))
       requestAnimationFrame(() => input.focus())
     }
 
-    const toggleMenu = (event) => {
-      dropdown.dataset.value = 'custom'
-      triggerText.textContent = 'Custom HEX'
-      menu.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === 'custom'))
-      input.value = validColor(input.value) ? input.value.trim().toUpperCase() : defaults[id]
-      input.hidden = false
-      requestAnimationFrame(() => input.focus())
-    }
-
-    trigger.addEventListener('click',(event) => {
-      event.stopPropagation()
+    const closeOthers = () => {
       document.querySelectorAll('.dropdown.open').forEach(other => {
         if (other !== dropdown) {
           other.classList.remove('open')
-          other.querySelectorAll('[aria-haspopup="listbox"]').forEach(control => control.setAttribute('aria-expanded','false'))
+          other.querySelectorAll('[aria-expanded]').forEach(c => c.setAttribute('aria-expanded','false'))
         }
       })
-      const open = dropdown.classList.toggle('open')
-      menuToggle.setAttribute('aria-expanded',String(open))
     }
 
-    input.addEventListener('click', (event) => {
-      if (input.readOnly) toggleMenu(event)
-      else event.stopPropagation()
-    })
-    menuToggle.addEventListener('click', toggleMenu)
+    // FIX 2: was missing closing `)` for addEventListener — was `}` instead of `})`
+    // FIX 3: `toggleMenu` referenced undefined `triggerText` — replaced with clean `toggleThis`
+    const toggleThis = (e) => {
+      e.stopPropagation()
+      closeOthers()
+      const open = dropdown.classList.toggle('open')
+      menuToggle.setAttribute('aria-expanded', String(open))
+    }
 
-    menu.querySelectorAll('.option').forEach(option => option.addEventListener('click',(event) => {
-      event.stopPropagation()
-      if (option.dataset.value === 'custom') {
-        selectCustom()
-      } else {
-        setValue(option.dataset.value)
-      }
+    // Clicking the container row opens/closes the menu
+    trigger.addEventListener('click', toggleThis)
+
+    // Clicking the text input:
+    //   • if editable → stay in edit mode (stop bubble so menu doesn't toggle)
+    //   • if readonly  → let event bubble up to trigger, which calls toggleThis
+    input.addEventListener('click', (e) => {
+      if (!input.readOnly) e.stopPropagation()
+    })
+
+    // Clicking the chevron button also toggles the menu; stop bubble to avoid
+    // double-firing the trigger's listener
+    menuToggle.addEventListener('click', (e) => {
+      e.stopPropagation()
+      toggleThis(e)
+    })
+
+    menu.querySelectorAll('.option').forEach(o => o.addEventListener('click', (e) => {
+      e.stopPropagation()
+      if (o.dataset.value === 'custom') selectCustom()
+      else setValue(o.dataset.value)
       dropdown.classList.remove('open')
-      menuToggle.setAttribute('aria-expanded','false')
+      menuToggle.setAttribute('aria-expanded', 'false')
       syncColorsToJson()
     }))
-    input.addEventListener('input',syncColorsToJson)
-    input.addEventListener('change',syncColorsToJson)
+
+    input.addEventListener('input', syncColorsToJson)
+    input.addEventListener('change', syncColorsToJson)
     setValue(defaults[id])
     return field
   }
@@ -146,29 +143,19 @@
     try {
       const payload = JSON.parse(json.value || '{}')
       for (const [id] of colors) {
-        const dropdown = $(`${id}Dropdown`)
-        const custom = $(`${id}Custom`)
-        const value = dropdown?.dataset.value === 'custom' ? custom?.value.trim() : dropdown?.dataset.value
-        if (validColor(value)) payload[id] = value.toUpperCase()
+        const dd = $(`${id}Dropdown`)
+        const inp = $(`${id}Custom`)
+        const val = dd?.dataset.value === 'custom' ? inp?.value.trim() : dd?.dataset.value
+        if (validColor(val)) payload[id] = val.toUpperCase()
       }
-      json.value = JSON.stringify(payload,null,2)
+      json.value = JSON.stringify(payload, null, 2)
     } catch (_) {}
   }
 
-  const [bubbleField,nameField,textField] = colors.map(createColorField)
-  if (!bubbleField || !nameField || !textField) return
+  const [f1, f2, f3] = colors.map(createColorField)
+  if (!f1 || !f2 || !f3) return
 
-  // The original playground script rebuilds Advanced JSON when a base field
-  // changes. Re-apply colour fields afterwards so a valid custom HEX is not
-  // silently dropped before Generate is pressed.
-  ;['name','uid','text','avatar','showAvatar','bg','width','height','scale','replyName','replyText','hasReply'].forEach(id => {
-    $(id)?.addEventListener('input', () => setTimeout(syncColorsToJson, 0))
-    $(id)?.addEventListener('change', () => setTimeout(syncColorsToJson, 0))
-  })
-
-  // The original playground script rebuilds Advanced JSON when a base field
-  // changes. Re-apply colour fields afterwards so a valid custom HEX is not
-  // silently dropped before Generate is pressed.
+  // FIX 4: this listener block was duplicated — keeping only one copy
   ;['name','uid','text','avatar','showAvatar','bg','width','height','scale','replyName','replyText','hasReply'].forEach(id => {
     $(id)?.addEventListener('input', () => setTimeout(syncColorsToJson, 0))
     $(id)?.addEventListener('change', () => setTimeout(syncColorsToJson, 0))
@@ -178,67 +165,70 @@
     try {
       const payload = JSON.parse($('json').value || '{}')
       for (const [id] of colors) {
-        const dropdown = $(`${id}Dropdown`)
-        const custom = $(`${id}Custom`)
-        if (!dropdown || !custom) continue
-        const normalized = String(payload[id] || defaults[id]).trim().toUpperCase()
-        const presetName = presetByValue.get(normalized)
+        const dd = $(`${id}Dropdown`)
+        const inp = $(`${id}Custom`)
+        if (!dd || !inp) continue
+        const norm = String(payload[id] || defaults[id]).trim().toUpperCase()
+        const presetName = presetByValue.get(norm)
         const selected = presetName ? colorPresets[presetName] : 'custom'
-        dropdown.dataset.value = selected
-        custom.value = presetName ? `${presetName} — ${normalized}` : normalized
-        custom.readOnly = selected !== 'custom'
-        dropdown.querySelectorAll('.option').forEach(option => option.classList.toggle('active',option.dataset.value === selected))
+        dd.dataset.value = selected
+        inp.value = presetName ? `${presetName} — ${norm}` : norm
+        inp.readOnly = selected !== 'custom'
+        dd.querySelectorAll('.option').forEach(o => o.classList.toggle('active', o.dataset.value === selected))
       }
     } catch (_) {}
   }
 
-  $('applyJson')?.addEventListener('click',() => setTimeout(syncFieldsFromJson,0))
-  $('reset')?.addEventListener('click',() => setTimeout(() => {
+  $('applyJson')?.addEventListener('click', () => setTimeout(syncFieldsFromJson, 0))
+  $('reset')?.addEventListener('click', () => setTimeout(() => {
     for (const [id] of colors) {
-      const dropdown = $(`${id}Dropdown`)
-      const custom = $(`${id}Custom`)
-      if (!dropdown || !custom) continue
-      const presetName = presetByValue.get(defaults[id])
-      dropdown.dataset.value = presetName ? colorPresets[presetName] : 'custom'
-      custom.value = presetName ? `${presetName} — ${defaults[id]}` : defaults[id]
-      custom.readOnly = true
-      dropdown.querySelectorAll('.option').forEach(option => option.classList.toggle('active', option.dataset.value === dropdown.dataset.value))
+      const dd = $(`${id}Dropdown`)
+      const inp = $(`${id}Custom`)
+      if (!dd || !inp) continue
+      const norm = defaults[id].toUpperCase()
+      const presetName = presetByValue.get(norm)
+      const selected = presetName ? colorPresets[presetName] : defaults[id]
+      dd.dataset.value = selected
+      inp.value = presetName ? `${presetName} — ${norm}` : defaults[id]
+      inp.readOnly = true
+      dd.querySelectorAll('.option').forEach(o => o.classList.toggle('active', o.dataset.value === selected))
     }
     syncColorsToJson()
-  },0))
+  }, 0))
 
-  const requestTable = document.querySelector('#request-doc table tbody')
-  if (requestTable) for (const [id,label] of colors) {
-    const row = document.createElement('tr')
-    row.innerHTML = `<td><code>${id}</code></td><td>string</td><td>${label} as a hex color. Use a preset or enter a custom HEX value. Defaults to <code>${defaults[id]}</code>.</td>`
-    requestTable.appendChild(row)
+  const tbody = document.querySelector('#request-doc table tbody')
+  if (tbody) for (const [id, label] of colors) {
+    const tr = document.createElement('tr')
+    tr.innerHTML = `<td><code>${id}</code></td><td>string</td><td>${label} as a hex color (<code>#RGB</code> or <code>#RRGGBB</code>). Defaults to <code>${defaults[id]}</code>.</td>`
+    tbody.appendChild(tr)
   }
 
-  const quickstart = document.querySelector('#quickstart .code')
-  if (quickstart && !quickstart.textContent.includes('bubbleColor')) quickstart.textContent = quickstart.textContent.replace(/\n  ]\n}/,'\n  ],\n  "bubbleColor": "#FFFFFF",\n  "nameColor": "#000000",\n  "textColor": "#000000"\n}')
+  const qs = document.querySelector('#quickstart .code')
+  if (qs && !qs.textContent.includes('bubbleColor')) {
+    qs.textContent = qs.textContent.replace(/\n  ]\n}/, '\n  ],\n  "bubbleColor": "#FFFFFF",\n  "nameColor": "#000000",\n  "textColor": "#000000"\n}')
+  }
 
   const style = document.createElement('style')
-  style.id = 'quotely-playground-fix'
+  style.id = 'quotely-customization-styles'
   style.textContent = `
-    html { scrollbar-width:none; }
-    html::-webkit-scrollbar,body::-webkit-scrollbar,textarea::-webkit-scrollbar,.code::-webkit-scrollbar { width:0!important;height:0!important;display:none!important; }
-    .color-trigger { padding:0 5px 0 12px; gap:5px; }
-    .color-inline-input { min-width:0; width:100%; height:100%; border:0; outline:0; background:transparent; color:inherit; font:inherit; font-weight:700; }
-    .color-inline-input[readonly] { cursor:pointer; }
-    .color-menu-toggle { flex:none; display:grid; place-items:center; width:30px; height:30px; border:0; border-radius:6px; background:transparent; color:inherit; cursor:pointer; }
-    .color-menu-toggle:hover { background:var(--surface-2); }
-    .color-menu-toggle .chevron { pointer-events:none; }
-    .dropdown.open .color-menu-toggle .chevron { transform:rotate(225deg) translate(-1px,-1px); }
+    .color-trigger { padding: 0 5px 0 12px; gap: 5px; }
+    .color-inline-input { min-width: 0; width: 100%; height: 100%; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; }
+    .color-inline-input[readonly] { cursor: pointer; }
+    .color-menu-toggle { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; }
+    .color-menu-toggle:hover { background: var(--surface-2); }
+    .color-menu-toggle .chevron { pointer-events: none; }
+    .dropdown.open .color-menu-toggle .chevron { transform: rotate(225deg) translate(-1px,-1px); }
   `
   document.head.appendChild(style)
 
-  const resultImage = $('resultImage')
-  let previousUrl = null
-  const observer = resultImage && new MutationObserver(() => {
-    const nextUrl = resultImage.src
-    if (previousUrl && previousUrl !== nextUrl) URL.revokeObjectURL(previousUrl)
-    previousUrl = nextUrl
-  })
-  observer?.observe(resultImage,{attributes:true,attributeFilter:['src']})
+  const resultImg = $('resultImage')
+  if (resultImg) {
+    let prevUrl = null
+    new MutationObserver(() => {
+      if (prevUrl && prevUrl !== resultImg.src) URL.revokeObjectURL(prevUrl)
+      prevUrl = resultImg.src
+    }).observe(resultImg, { attributes: true, attributeFilter: ['src'] })
+  }
+
   syncColorsToJson()
 })()
