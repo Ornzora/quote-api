@@ -121,7 +121,6 @@ async function main () {
     const result = await downloadFont(name, url, true)
     result ? ok++ : skipped++
   }
-
   console.log(`\nDone. Required: ${Object.keys(fonts).length} fonts. Universal: ${ok} downloaded, ${skipped} skipped.`)
 }
 
