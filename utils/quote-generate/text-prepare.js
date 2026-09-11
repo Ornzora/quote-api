@@ -1,6 +1,5 @@
 // utils/quote-generate/text-prepare.js
 // Prepare phase: tokenize text, load emoji, measure segments.
-// Keeps the rendering pipeline compatible with the upstream quote renderer.
 
 const { createCanvas, loadImage } = require('canvas')
 const sharp = require('sharp')
@@ -33,10 +32,45 @@ const emojiLoadingPromises = new Map()
 const BASE_FONT = 'NotoSans'
 const MONO_FONT = 'NotoSansMono'
 
+// Comprehensive Pango font stack for character-level Unicode fallback.
+//
+// How it works: node-canvas uses Pango for text layout. Pango resolves each
+// character against families in order — if NotoSans has no glyph for a
+// Japanese character it moves on to NotoSansJP, then NotoSansSC (more hanzi),
+// then scripts fonts, and finally 'sans-serif' which resolves via fontconfig
+// to whatever system fonts are installed (e.g. fonts-noto-cjk on Docker).
+//
+// Fonts in the stack are registered by loadFonts() from assets/fonts/*.ttf|otf.
+// Missing families are silently skipped by Pango — adding a name here for a
+// font that wasn't downloaded has no negative effect.
+const FONT_STACK = [
+  'NotoSans',          // Latin, Cyrillic, Greek, Armenian, Georgian (basic)
+  'NotoSansJP',        // Japanese hiragana/katakana + most CJK unified ideographs
+  'NotoSansSC',        // Simplified Chinese (extended hanzi coverage)
+  'NotoSansKR',        // Korean hangul
+  'NotoSansArabic',    // Arabic, Urdu, Persian, etc.
+  'NotoSansHebrew',    // Hebrew, Yiddish
+  'NotoSansThai',      // Thai
+  'NotoSansDevanagari',// Hindi, Marathi, Sanskrit, Nepali
+  'NotoSansBengali',   // Bengali, Assamese
+  'NotoSansTamil',     // Tamil
+  'NotoSansKhmer',     // Khmer (Cambodian)
+  'NotoSansMyanmar',   // Burmese
+  'NotoSansGeorgian',  // Georgian
+  'NotoSansEthiopic',  // Amharic, Tigrinya
+  'sans-serif'         // Final fallback → fontconfig system fonts
+].join(', ')
+
+// Monospace stack: NotoSansMono for code, everything else for any non-Latin
+// characters that might appear in code blocks (e.g. CJK comments).
+const MONO_STACK = `NotoSansMono, ${FONT_STACK}`
+
 const PROBE_TALL = 'ẤÅЇĎ'
 const PROBE_DEEP = 'jqyḑộ'
 const fontMetricsCache = new Map()
 
+// fontMetrics measures from NotoSans only — we want stable em-box geometry
+// driven by the primary Latin font, not a variable-height script font.
 function fontMetrics (fontSize) {
   let m = fontMetricsCache.get(fontSize)
   if (m) return m
@@ -55,13 +89,13 @@ function fontMetrics (fontSize) {
   return m
 }
 
+// resolveFont returns a Pango-compatible font description string that includes
+// the full Unicode font stack so every script renders correctly.
 function resolveFont (styles, fontSize) {
-  let fontType = ''
-  let fontName = BASE_FONT
-  if (styles.includes('bold')) fontType += 'bold '
-  if (styles.includes('italic')) fontType += 'italic '
-  if (styles.includes('monospace')) fontName = MONO_FONT
-  return `${fontType}${fontSize}px ${fontName}`
+  const bold = styles.includes('bold') ? 'bold ' : ''
+  const italic = styles.includes('italic') ? 'italic ' : ''
+  const stack = styles.includes('monospace') ? MONO_STACK : FONT_STACK
+  return `${bold}${italic}${fontSize}px ${stack}`
 }
 
 function buildStyledChars (text, entities) {
